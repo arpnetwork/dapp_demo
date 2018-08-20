@@ -1,54 +1,85 @@
-defmodule DappDemo.Init do
+defmodule DappDemo.Admin do
   @moduledoc """
-  Initialize dapp
+  Admin.
   """
-
-  alias DappDemo.Contract
 
   require Logger
 
-  def init() do
-    all_env = Application.get_all_env(:dapp_demo)
+  alias DappDemo.Account
+  alias DappDemo.Contract
+  alias DappDemo.Config
+  alias DappDemo.Crypto
+  alias DappDemo.ServerRegistry
 
-    data_dir = all_env[:data_dir]
+  @keystore_path Application.get_env(:dapp_demo, :data_dir) |> Path.join("keystore")
+  @servers_path Application.get_env(:dapp_demo, :data_dir) |> Path.join("bind_server")
 
-    unless File.exists?(data_dir) do
-      :ok = File.mkdir(data_dir)
-    end
+  def load_default() do
+    config = Application.get_all_env(:dapp_demo)
+    Config.set(:amount, config[:amount])
+    Config.set(:price, config[:price])
+    Config.set(:keystore_file, config[:keystore_file])
+    Config.set(:bind_server, config[:bind_server])
 
-    password = all_env[:password]
-    keystore_file = all_env[:keystore_file]
-    deposit = all_env[:deposit]
-    configed_server_addr = all_env[:bind_server]
-
-    bind_server_path = Path.join(data_dir, "bind_server")
-    file_data = read_bind_server(bind_server_path)
+    file_data = read_bind_server(@servers_path)
     saved_server_addr = Enum.at(file_data, 0)
 
-    server_addr = configed_server_addr || saved_server_addr
+    server_addr = config[:bind_server] || saved_server_addr
 
-    with {:ok, %{private_key: private_key, address: address}} <-
-           DappDemo.Account.set_key(keystore_file, password),
-         :ok <- check_eth_balance(address),
+    with {:ok, _} <- Account.set_key(config[:keystore_file], config[:password]),
+         :ok <- bind_server(server_addr, config[:amount]) do
+      :ok
+    else
+      error ->
+        error
+    end
+  end
+
+  def verify_password(password) do
+    with {:ok, file} <- File.read(@keystore_path),
+         {:ok, file_map} <- file |> String.downcase() |> Poison.decode(keys: :atoms),
+         {:ok, private_key} <- Crypto.decrypt_keystore(file_map, password) do
+      if Account.private_key() == private_key do
+        :ok
+      else
+        :error
+      end
+    else
+      _ ->
+        :error
+    end
+  end
+
+  def import_private_key(private_key, password) do
+    keystore = Crypto.encrypt_private_key(private_key, password)
+    File.write!(@keystore_path, Poison.encode!(keystore))
+
+    Account.set_key(private_key)
+  end
+
+  def bind_server(server_address, amount) do
+    address = Account.address()
+    private_key = Account.private_key()
+
+    with :ok <- check_eth_balance(address),
          :ok <- check_arp_balance(address),
-         :ok <- check_and_deposit_to_bank(private_key, address, deposit),
-         :ok <- check_and_bind_server(private_key, address, server_addr),
-         :ok <- check_and_approve_to_bank(private_key, address, server_addr, deposit) do
+         :ok <- check_and_deposit_to_bank(private_key, address, amount),
+         :ok <- check_and_bind_server(private_key, address, server_address),
+         :ok <- check_and_approve_to_bank(private_key, address, server_address, amount) do
       # save to file, save server info
-      save_bind_server_addr(bind_server_path, server_addr)
+      save_bind_server_addr(@servers_path, server_address)
 
-      server = Contract.get_server_by_addr(server_addr)
+      server = Contract.get_server_by_addr(server_address)
 
-      %{cid: cid} = Contract.bank_allowance(address, server_addr)
-      DappDemo.Server.insert(server_addr, server.ip, server.port, cid)
+      %{cid: cid} = Contract.bank_allowance(address, server_address)
+      ServerRegistry.create(server_address, server.ip, server.port + 1, cid)
 
-      Logger.info("binded server #{server_addr}, ip = #{server.ip}")
+      Logger.info("binded server #{server_address}, ip = #{server.ip}")
 
       :ok
     else
-      {:error, msg} ->
-        Logger.error(msg)
-        :error
+      err ->
+        err
     end
   end
 
@@ -75,7 +106,7 @@ defmodule DappDemo.Init do
   defp check_and_deposit_to_bank(private_key, address, amount) do
     balance = Contract.get_bank_balance(address)
 
-    if balance == 0 do
+    if balance < amount do
       Logger.info("depositing...")
 
       with {:ok, %{"status" => "0x1"}} <- Contract.token_approve(private_key, amount),
@@ -124,7 +155,7 @@ defmodule DappDemo.Init do
             {:error, "bind server failed"}
         end
 
-      expired <= DateTime.utc_now() |> DateTime.to_unix() ->
+      expired != 0 && expired <= DateTime.utc_now() |> DateTime.to_unix() ->
         # unbind
         Logger.info("expired. unbinding server #{server_addr}")
 

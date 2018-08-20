@@ -8,17 +8,15 @@ defmodule DappDemo.Server do
   alias DappDemo.API.Jsonrpc2.Protocol
   alias DappDemo.{Utils, Device, SendNonce}
 
-  def device_request(server_address, price, ip, port) do
+  def device_request(server, price, ip, port) do
     method = "device_request"
     encode_price = price |> Utils.encode_int()
     sign_data = [encode_price, ip, port]
 
-    [{^server_address, %{ip: ip, port: port}}] = lookup(server_address)
-
-    case send_request(server_address, ip, port, method, sign_data) do
+    case send_request(server.address, server.ip, server.port, method, sign_data) do
       {:ok, result} ->
         dev = %DappDemo.Device{
-          server_address: server_address,
+          server_address: server.address,
           address: result["address"],
           ip: result["ip"],
           port: result["port"],
@@ -39,13 +37,11 @@ defmodule DappDemo.Server do
     end
   end
 
-  def device_release(server_address, device_addr) do
+  def device_release(server, device_addr) do
     method = "device_release"
     sign_data = [device_addr]
 
-    %{ip: ip, port: port} = lookup(server_address)
-
-    case send_request(server_address, ip, port, method, sign_data) do
+    case send_request(server.address, server.ip, server.port, method, sign_data) do
       {:ok, _result} ->
         Device.remove(device_addr)
 
@@ -54,56 +50,47 @@ defmodule DappDemo.Server do
     end
   end
 
-  def insert(address, ip, port, cid) do
-    :ets.insert(__MODULE__, {address, %{ip: ip, port: port, cid: cid, paid: 0}})
+  def start_link(opts) do
+    GenServer.start_link(__MODULE__, opts[:data])
   end
 
-  def delete(address) do
-    :ets.delete(__MODULE__, address)
+  def pay(server, dev_address, amount) do
+    GenServer.cast(server.pid, {:pay, dev_address, amount})
   end
 
-  def lookup(address) do
-    [{^address, data}] = :ets.lookup(__MODULE__, address)
-    data
-  end
-
-  def start_link(_opts) do
-    GenServer.start_link(__MODULE__, [], name: __MODULE__)
-  end
-
-  def pay(server_address, dev_address, amount) do
-    GenServer.cast(__MODULE__, {:pay, server_address, dev_address, amount})
+  def info(server) do
+    GenServer.call(server.pid, :info)
   end
 
   # Callbacks
 
-  def init(_opts) do
-    :ets.new(__MODULE__, [:named_table, :public, read_concurrency: true])
-    {:ok, %{}}
+  def init(data) do
+    {:ok, Map.put(data, :paid, 0)}
   end
 
-  def handle_cast({:pay, server_address, dev_address, amount}, _from, state) do
-    [{^server_address, server}] = lookup(server_address)
+  def handle_cast({:pay, dev_address, amount}, server) do
     new_paid = server.paid + amount
-    promise = Account.promise(server.cid, server_address, new_paid)
+    promise = Account.promise(server.cid, server.address, new_paid)
 
     data = [Poison.encode!(promise), dev_address]
 
-    case send_request(server_address, server.ip, server.port, "account_pay", data) do
-      {:ok, _result} ->
-        server = Map.put(server, :paid, new_paid)
-        :ets.insert(__MODULE__, {server_address, server})
-
-        Device.add_paid(dev_address, amount)
-
+    with {:ok, _result} <-
+           send_request(server.address, server.ip, server.port, "account_pay", data),
+         :ok <- Device.add_paid(dev_address, amount) do
+      server = Map.put(server, :paid, new_paid)
+      {:noreply, server}
+    else
       err ->
         IO.inspect(err)
+        {:noreply, server}
     end
-
-    {:noreply, state}
   end
 
-  defp send_request(server_address, ip, port, method, data) do
+  def handle_call(:info, _from, server) do
+    {:reply, server, server}
+  end
+
+  def send_request(server_address, ip, port, method, data) do
     private_key = Account.private_key()
     address = Account.address()
 

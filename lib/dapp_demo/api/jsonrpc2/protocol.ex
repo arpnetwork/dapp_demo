@@ -52,6 +52,10 @@ defmodule DappDemo.API.Jsonrpc2.Protocol do
     :invalid_params
   end
 
+  def response(nil) do
+    :invalid_params
+  end
+
   def response(data) do
     {:ok, data}
   end

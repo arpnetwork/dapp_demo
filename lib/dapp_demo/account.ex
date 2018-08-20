@@ -4,6 +4,7 @@ defmodule DappDemo.Account do
   """
 
   alias DappDemo.Crypto
+  alias DappDemo.Utils
 
   require Logger
 
@@ -39,18 +40,31 @@ defmodule DappDemo.Account do
     end
   end
 
+  def set_key(private_key) do
+    public_key = Crypto.eth_privkey_to_pubkey(private_key)
+    address = Crypto.get_eth_addr(public_key)
+
+    :ets.insert(__MODULE__, [
+      {:private_key, private_key},
+      {:public_key, public_key},
+      {:address, address}
+    ])
+
+    {:ok, %{private_key: private_key, public_key: public_key, address: address}}
+  end
+
   def private_key do
-    [{:private_key, key}] = :ets.lookup_element(__MODULE__, :private_key, 2)
+    [{:private_key, key}] = :ets.lookup(__MODULE__, :private_key)
     key
   end
 
   def public_key do
-    [{:public_key, key}] = :ets.lookup_element(__MODULE__, :public_key, 2)
+    [{:public_key, key}] = :ets.lookup(__MODULE__, :public_key)
     key
   end
 
   def address do
-    [{:address, addr}] = :ets.lookup_element(__MODULE__, :address, 2)
+    [{:address, addr}] = :ets.lookup(__MODULE__, :address)
     addr
   end
 
@@ -80,10 +94,10 @@ defmodule DappDemo.Account do
         amount::size(256)>>
 
     %{
-      cid: cid,
+      cid: Utils.encode_int(cid),
       from: address,
       to: server_address,
-      amount: amount,
+      amount: Utils.encode_int(amount),
       sign: Crypto.eth_sign(data, private_key)
     }
   end

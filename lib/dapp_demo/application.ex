@@ -15,8 +15,10 @@ defmodule DappDemo.Application do
     children = [
       # Starts a worker by calling: DappDemo.Worker.start_link(arg)
       # {DappDemo.Worker, arg},
+      {DynamicSupervisor, name: DappDemo.DSupervisor, strategy: :one_for_one},
+      DappDemo.Config,
       DappDemo.Device,
-      DappDemo.Server,
+      DappDemo.ServerRegistry,
       DappDemo.API.Jsonrpc2.Nonce,
       DappDemo.SendNonce,
       Plug.Adapters.Cowboy2.child_spec(
@@ -26,7 +28,8 @@ defmodule DappDemo.Application do
            modules: [
              DappDemo.API.Jsonrpc2.Nonce,
              DappDemo.API.Jsonrpc2.App,
-             DappDemo.API.Jsonrpc2.Client
+             DappDemo.API.Jsonrpc2.Client,
+             DappDemo.API.Jsonrpc2.Account
            ]},
         options: [port: @jsonrpc_port]
       ),
@@ -41,16 +44,9 @@ defmodule DappDemo.Application do
 
     # See https://hexdocs.pm/elixir/Supervisor.html
     # for other strategies and supported options
-    opts = [strategy: :one_for_one, name: DappDemo.Supervisor]
-    {:ok, pid} = Supervisor.start_link(children, opts)
-
-    # initialize
-    case DappDemo.Init.init() do
-      :ok ->
-        {:ok, pid}
-
-      :error ->
-        {:error, :normal}
-    end
+    opts = [strategy: :one_for_one, name: DappDemo.AppSupervisor]
+    res = Supervisor.start_link(children, opts)
+    DappDemo.Admin.load_default()
+    res
   end
 end
