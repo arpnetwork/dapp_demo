@@ -10,7 +10,8 @@ defmodule DappDemo.API.Jsonrpc2.Nonce do
   alias DappDemo.API.Jsonrpc2.Protocol
 
   def get(address) do
-    lookup(address) |> Utils.encode_int() |> Protocol.response()
+    nonce = lookup(address) |> Utils.encode_int()
+    Protocol.response(%{nonce: nonce})
   end
 
   @spec check_and_update_nonce(String.t(), integer()) :: :ok | {:error, atom()}
