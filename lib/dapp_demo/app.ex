@@ -60,7 +60,7 @@ defmodule DappDemo.App do
     nonce = SendNonce.get_and_update_nonce(address) |> Utils.encode_int()
     url = "http://#{ip}:#{port}"
 
-    sign = Protocol.sign(method, params, nonce, address, private_key)
+    sign = Protocol.sign(method, params, nonce, dev_addr, private_key)
 
     case HTTP.call(url, method, params ++ [nonce, sign]) do
       {:ok, result} ->
