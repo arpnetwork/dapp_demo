@@ -125,6 +125,22 @@ defmodule DappDemo.Contract do
     send_transaction(@bank_contract, encoded_abi, private_key, gas_price, gas_limit)
   end
 
+  def bank_increase_approval(
+        private_key,
+        server_addr,
+        value,
+        expired \\ 0,
+        gas_price \\ @default_gas_price,
+        gas_limit \\ @default_gas_limit
+      ) do
+    server_addr = server_addr |> String.slice(2..-1) |> Base.decode16!(case: :mixed)
+
+    encoded_abi =
+      ABI.encode("increaseApproval(address,uint256,uint256)", [server_addr, value, expired])
+
+    send_transaction(@bank_contract, encoded_abi, private_key, gas_price, gas_limit)
+  end
+
   def bank_allowance(owner, server_addr) do
     owner = owner |> String.slice(2..-1) |> Base.decode16!(case: :mixed)
     server_addr = server_addr |> String.slice(2..-1) |> Base.decode16!(case: :mixed)

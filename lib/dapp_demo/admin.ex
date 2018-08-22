@@ -63,8 +63,8 @@ defmodule DappDemo.Admin do
 
     with :ok <- check_eth_balance(address),
          :ok <- check_arp_balance(address),
-         :ok <- check_and_deposit_to_bank(private_key, address, amount),
          :ok <- check_and_bind_server(private_key, address, server_address),
+         :ok <- check_and_deposit_to_bank(private_key, address, server_address, amount),
          :ok <- check_and_approve_to_bank(private_key, address, server_address, amount) do
       # save to file, save server info
       save_bind_server_addr(@servers_path, server_address)
@@ -103,10 +103,11 @@ defmodule DappDemo.Admin do
     end
   end
 
-  defp check_and_deposit_to_bank(private_key, address, amount) do
+  defp check_and_deposit_to_bank(private_key, address, server_addr, amount) do
     balance = Contract.get_bank_balance(address)
+    allowance = Contract.bank_allowance(address, server_addr)
 
-    if balance < amount do
+    if allowance.cid == 0 && balance < amount do
       Logger.info("depositing...")
 
       with {:ok, %{"status" => "0x1"}} <- Contract.token_approve(private_key, amount),

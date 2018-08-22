@@ -5,11 +5,12 @@ defmodule DappDemo.Server do
 
   alias JSONRPC2.Client.HTTP
   alias DappDemo.API.Jsonrpc2.Protocol
-  alias DappDemo.{Account, Contract, Device, SendNonce, Utils}
+  alias DappDemo.{Account, Config, Contract, Device, SendNonce, Utils}
 
   use GenServer
 
   @check_interval 3_600_000
+  @allowance_threshold_value 0.8
 
   def start_link(opts) do
     GenServer.start_link(__MODULE__, opts[:data])
@@ -115,32 +116,36 @@ defmodule DappDemo.Server do
     %{expired: binding_expired} =
       Contract.get_bind_server_expired(Account.address(), server.address)
 
+    allowance = Contract.bank_allowance(Account.address(), server.address)
+
     unbind_task = Map.get(server, :unbind_task, nil)
+    increase_approval_task = Map.get(server, :increase_approval_task, nil)
 
     server =
       cond do
-        register_expired > 0 && now < register_expired && binding_expired == 0 ->
+        register_expired > 0 && now < register_expired && binding_expired == 0 &&
+            is_nil(unbind_task) ->
           # server unregisted and binding_expired is forever
-          if is_nil(unbind_task) do
-            # first unbind
-            Logger.info("server unregisted, first unbind server #{server.address}")
-            unbind(server, devices)
-            Map.put(server, :unbind_task, :first_unbind_start)
-          else
-            server
-          end
+          # first unbind
+          Logger.info("server unregisted, first unbind server #{server.address}")
+          unbind(server, devices)
+          Map.put(server, :unbind_task, :first_unbind_start)
 
-        now > binding_expired ->
-          # binding expired
-          if is_nil(unbind_task) || :first_unbind_finished == unbind_task do
-            # first unbind is done or server unbind
-            # second unbind
-            Logger.info("second unbind server #{server.address}")
-            unbind(server, devices)
-            Map.put(server, :unbind_task, :second_unbind_start)
-          else
-            server
-          end
+        now > binding_expired && (is_nil(unbind_task) || :first_unbind_finished == unbind_task) ->
+          # binding expired.
+          # first unbind is done or server unbind.
+          # second unbind.
+          Logger.info("second unbind server #{server.address}")
+          unbind(server, devices)
+          Map.put(server, :unbind_task, :second_unbind_start)
+
+        allowance.paid / allowance.amount >= @allowance_threshold_value &&
+            is_nil(increase_approval_task) ->
+          # balance of allowance is too low.
+          increase_amount = Config.get(:amount)
+          Logger.info("increase approval #{server.address} #{increase_amount}")
+          increase_approval(server.address, increase_amount)
+          Map.put(server, :increase_approval_task, true)
 
         true ->
           server
@@ -166,6 +171,17 @@ defmodule DappDemo.Server do
       server = Map.delete(server, :unbind_task)
       {:noreply, {server, devices}}
     end
+  end
+
+  def handle_info({_ref, {:increase_approval_result, result}}, {server, devices}) do
+    Logger.info("increase approval result #{server.address} #{result}")
+
+    server = Map.delete(server, :increase_approval_task)
+    {:noreply, {server, devices}}
+  end
+
+  def handle_info(_msg, state) do
+    {:noreply, state}
   end
 
   def send_request(server_address, ip, port, method, data) do
@@ -202,6 +218,38 @@ defmodule DappDemo.Server do
 
         _ ->
           {:unbind_result, :fail}
+      end
+    end)
+  end
+
+  defp increase_approval(server_address, amount) do
+    Task.async(fn ->
+      dapp_address = Account.address()
+      private_key = Account.private_key()
+      balance = Contract.get_bank_balance(dapp_address)
+
+      res =
+        if balance < amount do
+          with {:ok, %{"status" => "0x1"}} <-
+                 Contract.token_approve(private_key, amount - balance),
+               {:ok, %{"status" => "0x1"}} <-
+                 Contract.deposit_to_bank(private_key, amount - balance) do
+            :ok
+          else
+            _ ->
+              :fail
+          end
+        else
+          :ok
+        end
+
+      with :ok <- res,
+           {:ok, %{"status" => "0x1"}} <-
+             Contract.bank_increase_approval(private_key, server_address, amount) do
+        {:increase_approval_result, :success}
+      else
+        _ ->
+          {:increase_approval_result, :fail}
       end
     end)
   end
