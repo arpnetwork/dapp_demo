@@ -1,12 +1,19 @@
 defmodule DappDemo.Server do
   @moduledoc false
 
-  use GenServer
+  require Logger
 
   alias JSONRPC2.Client.HTTP
-  alias DappDemo.Account
   alias DappDemo.API.Jsonrpc2.Protocol
-  alias DappDemo.{Utils, Device, SendNonce}
+  alias DappDemo.{Account, Contract, Device, SendNonce, Utils}
+
+  use GenServer
+
+  @check_interval 3_600_000
+
+  def start_link(opts) do
+    GenServer.start_link(__MODULE__, opts[:data])
+  end
 
   def device_request(server, price, ip, port) do
     method = "device_request"
@@ -24,13 +31,7 @@ defmodule DappDemo.Server do
           api_port: result["port"] + 1
         }
 
-        case Device.insert(dev) do
-          :ok ->
-            {:ok, dev}
-
-          {:error, error} ->
-            {:error, error}
-        end
+        GenServer.call(server.pid, {:add_device, dev})
 
       {:error, error} ->
         {:error, error}
@@ -43,32 +44,52 @@ defmodule DappDemo.Server do
 
     case send_request(server.address, server.ip, server.port, method, sign_data) do
       {:ok, _result} ->
-        Device.remove(device_addr)
+        GenServer.call(server.pid, {:remove_device, device_addr})
 
       {:error, error} ->
         {:error, error}
     end
   end
 
-  def start_link(opts) do
-    GenServer.start_link(__MODULE__, opts[:data])
-  end
-
   def pay(server, dev_address, amount) do
     GenServer.cast(server.pid, {:pay, dev_address, amount})
-  end
-
-  def info(server) do
-    GenServer.call(server.pid, :info)
   end
 
   # Callbacks
 
   def init(data) do
-    {:ok, Map.put(data, :paid, 0)}
+    # %{address: address, ip: ip, port: port, cid: cid} = data
+    Process.send_after(self(), :check_interval, @check_interval)
+    {:ok, {Map.put(data, :paid, 0), %{}}}
   end
 
-  def handle_cast({:pay, dev_address, amount}, server) do
+  def add_device({:add_device, device}, _from, {server, devices} = state) do
+    if Map.has_key?(devices, device.address) do
+      {:reply, {:error, :duplicate_device}, state}
+    else
+      devices = Map.put(devices, device.address, true)
+
+      case Device.insert(device) do
+        :ok ->
+          {:reply, {:ok, device}, {server, devices}}
+
+        {:error, error} ->
+          {:reply, {:error, error}, state}
+      end
+    end
+  end
+
+  def remove_device({:remove_device, device_addr}, _from, {server, devices} = state) do
+    if Map.has_key?(devices, device_addr) do
+      devices = Map.delete(devices, device_addr)
+      Device.remove(device_addr)
+      {:reply, :ok, {server, devices}}
+    else
+      {:reply, {:error, :no_device}, state}
+    end
+  end
+
+  def handle_cast({:pay, dev_address, amount}, {server, devices} = state) do
     new_paid = server.paid + amount
     promise = Account.promise(server.cid, server.address, new_paid)
 
@@ -78,16 +99,73 @@ defmodule DappDemo.Server do
            send_request(server.address, server.ip, server.port, "account_pay", data),
          :ok <- Device.add_paid(dev_address, amount) do
       server = Map.put(server, :paid, new_paid)
-      {:noreply, server}
+      {:noreply, {server, devices}}
     else
       err ->
         IO.inspect(err)
-        {:noreply, server}
+        {:noreply, state}
     end
   end
 
-  def handle_call(:info, _from, server) do
-    {:reply, server, server}
+  def handle_info(:check_interval, {server, devices}) do
+    # check server register expired
+    now = DateTime.utc_now() |> DateTime.to_unix()
+    %{expired: register_expired} = Contract.get_server_by_addr(server.address)
+
+    %{expired: binding_expired} =
+      Contract.get_bind_server_expired(Account.address(), server.address)
+
+    unbind_task = Map.get(server, :unbind_task, nil)
+
+    server =
+      cond do
+        register_expired > 0 && now < register_expired && binding_expired == 0 ->
+          # server unregisted and binding_expired is forever
+          if is_nil(unbind_task) do
+            # first unbind
+            Logger.info("server unregisted, first unbind server #{server.address}")
+            unbind(server, devices)
+            Map.put(server, :unbind_task, :first_unbind_start)
+          else
+            server
+          end
+
+        now > binding_expired ->
+          # binding expired
+          if is_nil(unbind_task) || :first_unbind_finished == unbind_task do
+            # first unbind is done or server unbind
+            # second unbind
+            Logger.info("second unbind server #{server.address}")
+            unbind(server, devices)
+            Map.put(server, :unbind_task, :second_unbind_start)
+          else
+            server
+          end
+
+        true ->
+          server
+      end
+
+    Process.send_after(self(), :check_interval, @check_interval)
+    {:noreply, {server, devices}}
+  end
+
+  def handle_info({_ref, {:unbind_result, result}}, {server, devices}) do
+    Logger.info("unbind server #{server.address} #{result}")
+
+    if :success == result do
+      unbind_task = Map.get(server, :unbind_task, nil)
+
+      if :second_unbind_start == unbind_task do
+        {:stop, :normal, {server, devices}}
+      else
+        server = Map.put(server, :unbind_task, :first_unbind_finished)
+        {:noreply, {server, devices}}
+      end
+    else
+      server = Map.delete(server, :unbind_task)
+      {:noreply, {server, devices}}
+    end
   end
 
   def send_request(server_address, ip, port, method, data) do
@@ -110,5 +188,21 @@ defmodule DappDemo.Server do
       {:error, err} ->
         {:error, err}
     end
+  end
+
+  defp unbind(server, devices) do
+    Task.async(fn ->
+      Enum.each(Map.keys(devices), fn addr ->
+        device_release(server, addr)
+      end)
+
+      case Contract.unbind_server(Account.private_key(), server.address) do
+        {:ok, %{"status" => "0x1"}} ->
+          {:unbind_result, :success}
+
+        _ ->
+          {:unbind_result, :fail}
+      end
+    end)
   end
 end

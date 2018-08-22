@@ -19,7 +19,7 @@ defmodule DappDemo.ServerRegistry do
   end
 
   def init(_opts) do
-    :ets.new(__MODULE__, [:named_table, :public, read_concurrency: true])
+    :ets.new(__MODULE__, [:named_table, read_concurrency: true])
     {:ok, %{}}
   end
 

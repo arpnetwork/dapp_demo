@@ -24,7 +24,7 @@ defmodule DappDemo.Admin do
     file_data = read_bind_server(@servers_path)
     saved_server_addr = Enum.at(file_data, 0)
 
-    server_addr = config[:bind_server] || saved_server_addr
+    server_addr = String.downcase(config[:bind_server] || saved_server_addr)
 
     with {:ok, _} <- Account.set_key(config[:keystore_file], config[:password]),
          :ok <- bind_server(server_addr, config[:amount]) do
