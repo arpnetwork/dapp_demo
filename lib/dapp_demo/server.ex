@@ -64,7 +64,7 @@ defmodule DappDemo.Server do
     {:ok, {Map.put(data, :paid, 0), %{}}}
   end
 
-  def add_device({:add_device, device}, _from, {server, devices} = state) do
+  def handle_call({:add_device, device}, _from, {server, devices} = state) do
     if Map.has_key?(devices, device.address) do
       {:reply, {:error, :duplicate_device}, state}
     else
@@ -80,7 +80,7 @@ defmodule DappDemo.Server do
     end
   end
 
-  def remove_device({:remove_device, device_addr}, _from, {server, devices} = state) do
+  def handle_call({:remove_device, device_addr}, _from, {server, devices} = state) do
     if Map.has_key?(devices, device_addr) do
       devices = Map.delete(devices, device_addr)
       Device.remove(device_addr)
