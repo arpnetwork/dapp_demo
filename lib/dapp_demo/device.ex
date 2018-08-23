@@ -1,8 +1,12 @@
 defmodule DappDemo.Device do
+  require Logger
+
   use GenServer
 
   @idle 0
   @using 1
+
+  @check_interval 9_000
 
   @enforce_keys [:server_address, :address, :ip, :port, :price]
   defstruct [
@@ -83,6 +87,7 @@ defmodule DappDemo.Device do
   # Callbacks
 
   def init(_opts) do
+    # Process.send_after(self(), :check_interval, @check_interval)
     {:ok, {%{}, %{}}}
   end
 
@@ -194,5 +199,32 @@ defmodule DappDemo.Device do
       _ ->
         {:reply, {:error, :no_device}, state}
     end
+  end
+
+  def handle_info(:check_interval, {devices, _users} = state) do
+    # check device working
+    Enum.each(devices, fn {addr, dev} ->
+      Task.async(fn ->
+        url = "http://#{dev.ip}:#{dev.api_port}"
+
+        case JSONRPC2.Client.HTTP.call(url, "device_ping", []) do
+          {:ok, _} ->
+            # nothing
+            nil
+
+          {:error, _} ->
+            Logger.info("device ping failed. #{addr}")
+            {:ok, pid} = DappDemo.ServerRegistry.lookup(dev.server_address)
+            DappDemo.Server.device_release(pid, dev.address)
+        end
+      end)
+    end)
+
+    Process.send_after(self(), :check_interval, @check_interval)
+    {:noreply, state}
+  end
+
+  def handle_info(_msg, state) do
+    {:noreply, state}
   end
 end
