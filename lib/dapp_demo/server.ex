@@ -68,16 +68,9 @@ defmodule DappDemo.Server do
   def device_release(pid, device_addr) do
     method = "device_release"
     sign_data = [device_addr]
-
     server = get(pid)
-
-    case send_request(server.address, server.ip, server.port, method, sign_data) do
-      {:ok, _result} ->
-        GenServer.call(pid, {:remove_device, device_addr})
-
-      {:error, error} ->
-        {:error, error}
-    end
+    send_request(server.address, server.ip, server.port, method, sign_data)
+    GenServer.call(pid, {:remove_device, device_addr})
   end
 
   def get(pid) do
@@ -148,7 +141,7 @@ defmodule DappDemo.Server do
       {:noreply, {server, devices}}
     else
       err ->
-        Logger.error(err)
+        Logger.error(inspect(err))
         {:noreply, state}
     end
   end
@@ -298,13 +291,12 @@ defmodule DappDemo.Server do
             state
 
           err ->
-            Logger.error(err)
+            Logger.error(inspect(err))
             nil
         end
 
       if state do
-        %{cid: cid} = Contract.bank_allowance(address, self_address)
-
+        %{cid: cid} = Contract.bank_allowance(self_address, address)
         file_data = read_file(address)
 
         paid =
@@ -464,7 +456,7 @@ defmodule DappDemo.Server do
 
       {:error, err} ->
         Logger.error("save file error, address = #{address}")
-        Logger.error(err)
+        Logger.error(inspect(err))
     end
   end
 

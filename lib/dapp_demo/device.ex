@@ -87,7 +87,7 @@ defmodule DappDemo.Device do
   # Callbacks
 
   def init(_opts) do
-    # Process.send_after(self(), :check_interval, @check_interval)
+    Process.send_after(self(), :check_interval, @check_interval)
     {:ok, {%{}, %{}}}
   end
 
