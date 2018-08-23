@@ -7,6 +7,7 @@ defmodule DappDemo.Contract do
   @token_contract Application.get_env(:dapp_demo, :token_contract_address)
   @registry_contract Application.get_env(:dapp_demo, :registry_contract_address)
   @bank_contract Application.get_env(:dapp_demo, :bank_contract_address)
+  @first_registry_block Application.get_env(:dapp_demo, :first_registry_block)
 
   @default_gas_price 41_000_000_000
   @default_gas_limit 300_000
@@ -316,6 +317,42 @@ defmodule DappDemo.Contract do
     encoded_abi = ABI.encode("transfer(address,uint)", [to, value])
 
     send_transaction(@token_contract, encoded_abi, private_key, gas_price, gas_limit)
+  end
+
+  def get_bound_servers(address) do
+    bind_topic =
+      "0x" <> Base.encode16(Crypto.keccak256("AppBound(address,address)"), case: :lower)
+
+    unbind_topic =
+      "0x" <> Base.encode16(Crypto.keccak256("AppUnbound(address,address)"), case: :lower)
+
+    encoded_address = String.replace_prefix(address, "0x", "0x000000000000000000000000")
+
+    params = %{
+      fromBlock: @first_registry_block,
+      toBlock: "latest",
+      address: @registry_contract,
+      topics: [[bind_topic, unbind_topic], encoded_address]
+    }
+
+    {:ok, id} = Ethereumex.HttpClient.eth_new_filter(params)
+    {:ok, logs} = Ethereumex.HttpClient.eth_get_filter_logs(id)
+    Ethereumex.HttpClient.eth_uninstall_filter(id)
+
+    Enum.reduce(logs, [], fn item, acc ->
+      if item["removed"] == false do
+        [topic, _, server] = item["topics"]
+        server = String.replace_prefix(server, "0x000000000000000000000000", "0x")
+
+        if topic == bind_topic do
+          [server | acc]
+        else
+          List.delete(acc, server)
+        end
+      else
+        acc
+      end
+    end)
   end
 
   @doc """

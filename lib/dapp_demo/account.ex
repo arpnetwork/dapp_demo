@@ -3,6 +3,7 @@ defmodule DappDemo.Account do
   Manage dapp account
   """
 
+  alias DappDemo.Config
   alias DappDemo.Crypto
   alias DappDemo.Utils
 
@@ -12,20 +13,13 @@ defmodule DappDemo.Account do
     :ets.new(__MODULE__, [:named_table, :public, read_concurrency: true])
   end
 
-  def set_key(path, auth) do
-    data_keystore = keystore_file_path()
-
-    with {:ok, file} <- File.read(path || data_keystore),
-         {:ok, file_map} <- file |> String.downcase() |> Poison.decode(keys: :atoms),
-         {:ok, private_key} <- Crypto.decrypt_keystore(file_map, auth) do
+  def set_key(keystore, auth) do
+    with {:ok, private_key} <- Crypto.decrypt_keystore(keystore, auth) do
       public_key = Crypto.eth_privkey_to_pubkey(private_key)
       address = Crypto.get_eth_addr(public_key)
-
-      unless is_nil(path) do
-        path |> Path.expand() |> File.cp(data_keystore)
-      end
-
       Logger.info("use address #{address}")
+
+      Config.set_keystore(keystore)
 
       :ets.insert(__MODULE__, [
         {:private_key, private_key},
@@ -100,10 +94,5 @@ defmodule DappDemo.Account do
       amount: Utils.encode_int(amount),
       sign: Crypto.eth_sign(data, private_key)
     }
-  end
-
-  defp keystore_file_path() do
-    data_dir = Application.get_env(:dapp_demo, :data_dir)
-    Path.join(data_dir, "keystore")
   end
 end

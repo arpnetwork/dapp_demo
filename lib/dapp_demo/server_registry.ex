@@ -7,13 +7,13 @@ defmodule DappDemo.ServerRegistry do
     GenServer.start_link(__MODULE__, [], name: __MODULE__)
   end
 
-  def create(address, ip, port, cid) do
-    GenServer.call(__MODULE__, {:create, address, ip, port, cid})
+  def create(address, amount) do
+    GenServer.call(__MODULE__, {:create, address, amount})
   end
 
   def lookup(address) do
-    case :ets.lookup(__MODULE__, String.downcase(address)) do
-      [{^address, data}] -> {:ok, data}
+    case :ets.lookup(__MODULE__, address) do
+      [{^address, pid}] -> {:ok, pid}
       [] -> :error
     end
   end
@@ -23,26 +23,27 @@ defmodule DappDemo.ServerRegistry do
     {:ok, %{}}
   end
 
-  def handle_call({:create, address, ip, port, cid}, _from, state) do
+  def handle_call({:create, address, amount}, _from, state) do
     case lookup(address) do
       {:ok, data} ->
         {:reply, data, state}
 
       :error ->
-        server_data = %{address: address, ip: ip, port: port, cid: cid}
+        case DynamicSupervisor.start_child(
+               DappDemo.DSupervisor,
+               {DappDemo.Server, [address: address, amount: amount]}
+             ) do
+          {:ok, pid} ->
+            :ets.insert(__MODULE__, {address, pid})
 
-        {:ok, pid} =
-          DynamicSupervisor.start_child(
-            DappDemo.DSupervisor,
-            {DappDemo.Server, [data: server_data]}
-          )
+            ref = Process.monitor(pid)
+            state = Map.put(state, ref, address)
 
-        :ets.insert(__MODULE__, {address, Map.put(server_data, :pid, pid)})
+            {:reply, {:ok, pid}, state}
 
-        ref = Process.monitor(pid)
-        state = Map.put(state, ref, address)
-
-        {:reply, server_data, state}
+          err ->
+            {:reply, err, state}
+        end
     end
   end
 
