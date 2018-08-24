@@ -71,7 +71,7 @@ defmodule DappDemo.Server do
     sign_data = [device_addr]
     server = get(pid)
     send_request(server.address, server.ip, server.port, method, sign_data)
-    GenServer.call(pid, {:remove_device, device_addr})
+    GenServer.call(pid, {:release_device, device_addr})
   end
 
   def get(pid) do
@@ -139,7 +139,7 @@ defmodule DappDemo.Server do
     end
   end
 
-  def handle_call({:remove_device, device_addr}, _from, {server, devices, refs, tab} = state) do
+  def handle_call({:release_device, device_addr}, _from, {server, devices, refs, tab} = state) do
     if Map.has_key?(devices, device_addr) do
       {pid, devices} = Map.pop(devices, device_addr)
 

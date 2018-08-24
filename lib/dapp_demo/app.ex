@@ -52,6 +52,7 @@ defmodule DappDemo.App do
   end
 
   def uninstall(dev) do
+    Device.uninstall_success(dev.pid)
     query(dev.address, dev.ip, dev.api_port, "app_uninstall", [dev.package])
   end
 

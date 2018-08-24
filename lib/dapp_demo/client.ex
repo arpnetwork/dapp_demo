@@ -3,11 +3,11 @@ defmodule DappDemo.Client do
 
   alias DappDemo.Device
 
-  def connected(address, session) do
-    Device.verify(address, session)
+  def connected(pid, session) do
+    Device.verify(pid, session)
   end
 
-  def disconnected(address, session) do
-    Device.idle(address, session)
+  def disconnected(pid, session) do
+    Device.idle(pid, session)
   end
 end

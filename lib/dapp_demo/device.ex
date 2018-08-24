@@ -32,7 +32,7 @@ defmodule DappDemo.Device do
 
   def release(pid) do
     if Process.alive?(pid) do
-      GenServer.call(pid, :release)
+      GenServer.cast(pid, :release)
     else
       {:error, :invalid_pid}
     end
@@ -48,7 +48,15 @@ defmodule DappDemo.Device do
 
   def install_success(pid, package) do
     if Process.alive?(pid) do
-      GenServer.call(pid, {:install_success, package})
+      GenServer.cast(pid, {:install_success, package})
+    else
+      {:error, :invalid_pid}
+    end
+  end
+
+  def uninstall_success(pid) do
+    if Process.alive?(pid) do
+      GenServer.cast(pid, :uninstall_success)
     else
       {:error, :invalid_pid}
     end
@@ -80,7 +88,7 @@ defmodule DappDemo.Device do
   end
 
   def add_paid(pid, amount) do
-    GenServer.call(pid, {:add_paid, amount})
+    GenServer.cast(pid, {:add_paid, amount})
   end
 
   # Callbacks
@@ -96,10 +104,6 @@ defmodule DappDemo.Device do
     :ets.delete(__MODULE__, address)
   end
 
-  def handle_call(:release, _from, state) do
-    {:stop, :normal, state}
-  end
-
   def handle_call({:verify, session}, _from, {address} = state) do
     with [{^address, device}] <- :ets.lookup(__MODULE__, address),
          ^session <- device.session do
@@ -107,18 +111,6 @@ defmodule DappDemo.Device do
     else
       _ ->
         {:reply, {:error, :invalid_params}, state}
-    end
-  end
-
-  def handle_call({:install_success, package}, _from, {address} = state) do
-    case :ets.lookup(__MODULE__, address) do
-      [{^address, device}] ->
-        device = struct(device, package: package)
-        :ets.insert(__MODULE__, {address, device})
-        {:reply, :ok, state}
-
-      _ ->
-        {:stop, :normal, state}
     end
   end
 
@@ -147,16 +139,44 @@ defmodule DappDemo.Device do
     end
   end
 
-  def handle_call({:add_paid, amount}, _from, {address} = state) do
+  def handle_cast({:add_paid, amount}, {address} = state) do
     case :ets.lookup(__MODULE__, address) do
       [{^address, device}] ->
         device = struct(device, paid: device.paid + amount)
         :ets.insert(__MODULE__, {address, device})
-        {:reply, :ok, state}
+        {:noreply, state}
 
       _ ->
         {:stop, :normal, state}
     end
+  end
+
+  def handle_cast({:install_success, package}, {address} = state) do
+    case :ets.lookup(__MODULE__, address) do
+      [{^address, device}] ->
+        device = struct(device, package: package)
+        :ets.insert(__MODULE__, {address, device})
+        {:noreply, state}
+
+      _ ->
+        {:stop, :normal, state}
+    end
+  end
+
+  def handle_cast(:uninstall_success, {address} = state) do
+    case :ets.lookup(__MODULE__, address) do
+      [{^address, device}] ->
+        device = struct(device, package: nil)
+        :ets.insert(__MODULE__, {address, device})
+        {:noreply, state}
+
+      _ ->
+        {:stop, :normal, state}
+    end
+  end
+
+  def handle_cast(:release, state) do
+    {:stop, :normal, state}
   end
 
   def handle_cast(:check_interval, {address} = state) do

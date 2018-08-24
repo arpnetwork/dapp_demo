@@ -2,14 +2,15 @@ defmodule DappDemo.API.Jsonrpc2.Client do
   use JSONRPC2.Server.Handler
 
   alias DappDemo.API.Jsonrpc2.Protocol
-  alias DappDemo.Account
+  alias DappDemo.{Account, DevicePool}
 
   def connected(session, nonce, sign) do
     private_key = Account.private_key()
     address = Account.address()
 
     with {:ok, dev_address} <- Protocol.verify(method(), [session], nonce, sign, address),
-         :ok <- DappDemo.Client.connected(dev_address, session) do
+         {:ok, dev} <- DevicePool.lookup(dev_address),
+         :ok <- DappDemo.Client.connected(dev.pid, session) do
       Protocol.response(%{}, nonce, dev_address, private_key)
     else
       err ->
@@ -22,7 +23,8 @@ defmodule DappDemo.API.Jsonrpc2.Client do
     address = Account.address()
 
     with {:ok, dev_address} <- Protocol.verify(method(), [session], nonce, sign, address),
-         :ok <- DappDemo.Client.disconnected(dev_address, session) do
+         {:ok, dev} <- DevicePool.lookup(dev_address),
+         :ok <- DappDemo.Client.disconnected(dev.pid, session) do
       Protocol.response(%{}, nonce, dev_address, private_key)
     else
       err ->
