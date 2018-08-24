@@ -5,8 +5,7 @@ defmodule DappDemo.API.Controller do
 
   alias DappDemo.API.Response
   alias DappDemo.API.Error
-  alias DappDemo.App
-  alias DappDemo.Device
+  alias DappDemo.{App, Device, DevicePool}
 
   @doc """
   Response the app list.
@@ -21,7 +20,7 @@ defmodule DappDemo.API.Controller do
   end
 
   def device_request(conn, params) do
-    with {:ok, dev} <- Device.request(params["package"]) do
+    with {:ok, dev} <- DevicePool.request(params["package"]) do
       App.start(dev)
 
       resp_data = %{
@@ -41,7 +40,13 @@ defmodule DappDemo.API.Controller do
   end
 
   def device_report(conn, params) do
-    Device.report(params["session"], params["state"])
+    case DevicePool.lookup_by_session(params["session"]) do
+      {:ok, dev} ->
+        Device.report(dev.pid, params["session"], params["state"])
+
+      _ ->
+        nil
+    end
 
     Response.render(conn, %{
       code: 0

@@ -19,11 +19,25 @@ defmodule DappDemo.ServerRegistry do
   end
 
   def init(_opts) do
-    :ets.new(__MODULE__, [:named_table, read_concurrency: true])
-    {:ok, %{}}
+    server_tab =
+      :ets.new(__MODULE__, [
+        :named_table,
+        :public,
+        write_concurrency: true,
+        read_concurrency: true
+      ])
+
+    :ets.new(DappDemo.Device, [
+      :named_table,
+      :public,
+      write_concurrency: true,
+      read_concurrency: true
+    ])
+
+    {:ok, {server_tab}}
   end
 
-  def handle_call({:create, address, amount}, _from, state) do
+  def handle_call({:create, address, amount}, _from, {server_tab} = state) do
     case lookup(address) do
       {:ok, data} ->
         {:reply, data, state}
@@ -31,29 +45,15 @@ defmodule DappDemo.ServerRegistry do
       :error ->
         case DynamicSupervisor.start_child(
                DappDemo.DSupervisor,
-               {DappDemo.Server, [address: address, amount: amount]}
+               {DappDemo.Server, [address: address, amount: amount, server_tab: server_tab]}
              ) do
           {:ok, pid} ->
-            :ets.insert(__MODULE__, {address, pid})
-
-            ref = Process.monitor(pid)
-            state = Map.put(state, ref, address)
-
+            :ets.insert(server_tab, {address, pid})
             {:reply, {:ok, pid}, state}
 
           err ->
             {:reply, err, state}
         end
     end
-  end
-
-  def handle_info({:DOWN, ref, :process, _pid, _reason}, state) do
-    {address, state} = Map.pop(state, ref)
-    :ets.delete(__MODULE__, address)
-    {:noreply, state}
-  end
-
-  def handle_info(_msg, state) do
-    {:noreply, state}
   end
 end

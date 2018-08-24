@@ -3,7 +3,7 @@ defmodule DappDemo.App do
 
   alias JSONRPC2.Client.HTTP
   alias DappDemo.API.Jsonrpc2.Protocol
-  alias DappDemo.{Account, Server, ServerRegistry, Device, SendNonce, Utils}
+  alias DappDemo.{Account, Server, ServerRegistry, Device, DevicePool, SendNonce, Utils}
 
   @app_install_success 0
   @app_download_failed 1
@@ -31,21 +31,19 @@ defmodule DappDemo.App do
   end
 
   def install_notify(address, result, package) do
+    {:ok, dev} = DevicePool.lookup(address)
+
     case result do
       @app_install_success ->
-        Device.install_success(address, package)
+        Device.install_success(dev.pid, package)
 
       @app_download_failed ->
-        dev = Device.lookup(address)
-
         case ServerRegistry.lookup(dev.server_address) do
           {:ok, pid} ->
             Server.device_release(pid, address)
         end
 
       @app_install_failed ->
-        dev = Device.lookup(address)
-
         case ServerRegistry.lookup(dev.server_address) do
           {:ok, pid} ->
             Server.device_release(pid, address)

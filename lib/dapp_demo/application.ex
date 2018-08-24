@@ -17,8 +17,8 @@ defmodule DappDemo.Application do
       # {DappDemo.Worker, arg},
       {DynamicSupervisor, name: DappDemo.DSupervisor, strategy: :one_for_one},
       DappDemo.Config,
-      DappDemo.Device,
       DappDemo.ServerRegistry,
+      DappDemo.DevicePool,
       DappDemo.API.Jsonrpc2.Nonce,
       DappDemo.SendNonce,
       Plug.Adapters.Cowboy2.child_spec(

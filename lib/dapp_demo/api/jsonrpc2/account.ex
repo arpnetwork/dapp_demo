@@ -3,7 +3,7 @@ defmodule DappDemo.API.Jsonrpc2.Account do
 
   alias DappDemo.API.Jsonrpc2.Protocol
   alias DappDemo.Account
-  alias DappDemo.Device
+  alias DappDemo.DevicePool
   alias DappDemo.Server
   alias DappDemo.ServerRegistry
   alias DappDemo.Utils
@@ -15,7 +15,7 @@ defmodule DappDemo.API.Jsonrpc2.Account do
     address = Account.address()
 
     with {:ok, dev_address} <- Protocol.verify(method(), [amount], nonce, sign, address),
-         dev when not is_nil(dev) <- Device.lookup(dev_address),
+         {:ok, dev} <- DevicePool.lookup(dev_address),
          {:ok, amount} <- Account.settle(dev.inserted_at, dev.price, dev.paid, decoded_amount),
          {:ok, server} <- ServerRegistry.lookup(dev.server_address),
          :ok <- Server.pay(server, dev_address, amount) do

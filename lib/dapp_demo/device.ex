@@ -1,15 +1,14 @@
 defmodule DappDemo.Device do
   require Logger
 
-  use GenServer
+  use GenServer, restart: :temporary
 
   @idle 0
   @using 1
 
-  @check_interval 9_000
-
   @enforce_keys [:server_address, :address, :ip, :port, :price]
   defstruct [
+    :pid,
     :server_address,
     :address,
     :ip,
@@ -27,47 +26,43 @@ defmodule DappDemo.Device do
   @client_using 1
   @client_stopped 2
 
-  def start_link(_opts) do
-    GenServer.start_link(__MODULE__, [], name: __MODULE__)
+  def start_link(opts) do
+    GenServer.start_link(__MODULE__, opts)
   end
 
-  def insert(dev) do
-    GenServer.call(__MODULE__, {:insert, dev})
+  def release(pid) do
+    if Process.alive?(pid) do
+      GenServer.call(pid, :release)
+    else
+      {:error, :invalid_pid}
+    end
   end
 
-  def remove(address) do
-    GenServer.call(__MODULE__, {:remove, address})
+  def verify(pid, session) do
+    if Process.alive?(pid) do
+      GenServer.call(pid, {:verify, session})
+    else
+      {:error, :invalid_pid}
+    end
   end
 
-  def verify(address, session) do
-    GenServer.call(__MODULE__, {:verify, address, session})
+  def install_success(pid, package) do
+    if Process.alive?(pid) do
+      GenServer.call(pid, {:install_success, package})
+    else
+      {:error, :invalid_pid}
+    end
   end
 
-  def lookup(address) do
-    GenServer.call(__MODULE__, {:lookup, address})
+  def idle(pid, session) do
+    if Process.alive?(pid) do
+      GenServer.call(pid, {:idle, session})
+    else
+      {:error, :invalid_pid}
+    end
   end
 
-  def all() do
-    GenServer.call(__MODULE__, :all)
-  end
-
-  def install_success(address, package) do
-    GenServer.call(__MODULE__, {:install_success, address, package})
-  end
-
-  def idle(address, session) do
-    GenServer.call(__MODULE__, {:idle, address, session})
-  end
-
-  def idle_by_session(session) do
-    GenServer.call(__MODULE__, {:idle_by_session, session})
-  end
-
-  def request(package) do
-    GenServer.call(__MODULE__, {:request, package})
-  end
-
-  def report(session, state) do
+  def report(pid, session, state) do
     case state do
       @client_before_connected ->
         nil
@@ -76,45 +71,38 @@ defmodule DappDemo.Device do
         nil
 
       @client_stopped ->
-        idle_by_session(session)
+        idle(pid, session)
     end
   end
 
-  def add_paid(address, amount) do
-    GenServer.call(__MODULE__, {:add_paid, address, amount})
+  def request(pid, package) do
+    GenServer.call(pid, {:request, package})
+  end
+
+  def add_paid(pid, amount) do
+    GenServer.call(pid, {:add_paid, amount})
   end
 
   # Callbacks
 
-  def init(_opts) do
-    Process.send_after(self(), :check_interval, @check_interval)
-    {:ok, {%{}, %{}}}
+  def init(opts) do
+    dev = opts[:device]
+    dev = struct(dev, pid: self())
+    :ets.insert(__MODULE__, {dev.address, dev})
+    {:ok, {dev.address}}
   end
 
-  def handle_call({:insert, dev}, _from, {devices, users} = state) do
-    unless Map.has_key?(devices, dev.address) do
-      dev = struct(dev, inserted_at: DateTime.utc_now() |> DateTime.to_unix())
-      {:reply, :ok, {Map.put(devices, dev.address, dev), users}}
-    else
-      {:reply, {:error, :duplicate_device}, state}
-    end
+  def terminate(_reason, {address}) do
+    :ets.delete(__MODULE__, address)
   end
 
-  def handle_call({:remove, address}, _from, {devices, users} = state) do
-    case Map.fetch(devices, address) do
-      {:ok, dev} ->
-        devices = Map.delete(devices, address)
-        users = Map.delete(users, dev.session)
-        {:reply, :ok, {devices, users}}
-
-      _ ->
-        {:reply, {:error, :no_device}, state}
-    end
+  def handle_call(:release, _from, state) do
+    {:stop, :normal, state}
   end
 
-  def handle_call({:verify, address, session}, _from, {devices, _users} = state) do
-    with {:ok, dev} <- Map.fetch(devices, address),
-         ^session <- dev.session do
+  def handle_call({:verify, session}, _from, {address} = state) do
+    with [{^address, device}] <- :ets.lookup(__MODULE__, address),
+         ^session <- device.session do
       {:reply, :ok, state}
     else
       _ ->
@@ -122,106 +110,81 @@ defmodule DappDemo.Device do
     end
   end
 
-  def handle_call({:lookup, address}, _from, {devices, _users} = state) do
-    {:reply, Map.get(devices, address, nil), state}
-  end
-
-  def handle_call(:all, _from, {devices, _users} = state) do
-    {:reply, devices, state}
-  end
-
-  def handle_call({:install_success, address, package}, _from, {devices, users} = state) do
-    case Map.fetch(devices, address) do
-      {:ok, dev} ->
-        dev = struct(dev, package: package, session: nil)
-        devices = Map.put(devices, address, dev)
-        {:reply, :ok, {devices, users}}
+  def handle_call({:install_success, package}, _from, {address} = state) do
+    case :ets.lookup(__MODULE__, address) do
+      [{^address, device}] ->
+        device = struct(device, package: package)
+        :ets.insert(__MODULE__, {address, device})
+        {:reply, :ok, state}
 
       _ ->
-        {:reply, {:error, :no_device}, state}
+        {:stop, :normal, state}
     end
   end
 
-  def handle_call({:idle, address, session}, _from, {devices, users} = state) do
-    with {:ok, dev} <- Map.fetch(devices, address),
-         ^session <- dev.session do
-      users = Map.delete(users, session)
-      dev = struct(dev, session: nil, state: @idle)
-      devices = Map.put(devices, address, dev)
-      {:reply, :ok, {devices, users}}
+  def handle_call({:idle, session}, _from, {address} = state) do
+    with [{^address, device}] <- :ets.lookup(__MODULE__, address),
+         ^session <- device.session do
+      device = struct(device, session: nil, state: @idle)
+      :ets.insert(__MODULE__, {address, device})
+      {:reply, :ok, state}
     else
       _ ->
         {:reply, {:error, :invalid_params}, state}
     end
   end
 
-  def handle_call({:idle_by_session, session}, _from, {devices, users} = state) do
-    case Map.fetch(users, session) do
-      {:ok, address} ->
-        users = Map.delete(users, session)
-
-        {:ok, dev} = Map.fetch(devices, address)
-        dev = struct(dev, session: nil, state: @idle)
-        devices = Map.put(devices, address, dev)
-
-        {:reply, :ok, {devices, users}}
-
-      _ ->
-        {:reply, {:error, :no_device}, state}
-    end
-  end
-
-  def handle_call({:request, package}, _from, {devices, users} = state) do
-    dev =
-      Enum.find_value(devices, nil, fn {_, dev} ->
-        if dev.state == @idle && dev.package == package, do: dev
-      end)
-
-    unless is_nil(dev) do
+  def handle_call({:request, package}, _from, {address} = state) do
+    with [{^address, device}] <- :ets.lookup(__MODULE__, address),
+         ^package <- device.package do
       session = Base.encode64(:crypto.strong_rand_bytes(96))
-      dev = struct(dev, state: @using, session: session)
-      devices = Map.put(devices, dev.address, dev)
-      users = Map.put(users, session, dev.address)
-
-      {:reply, {:ok, dev}, {devices, users}}
+      device = struct(device, state: @using, session: session)
+      :ets.insert(__MODULE__, {address, device})
+      {:reply, {:ok, device}, state}
     else
-      {:reply, {:error, :no_idle_device}, state}
+      _ ->
+        {:reply, {:error, :invalid_params}, state}
     end
   end
 
-  def handle_call({:add_paid, address, amount}, _from, {devices, users} = state) do
-    case Map.fetch(devices, address) do
-      {:ok, dev} ->
-        dev = struct(dev, paid: dev.paid + amount)
-        devices = Map.put(devices, address, dev)
-        {:reply, :ok, {devices, users}}
+  def handle_call({:add_paid, amount}, _from, {address} = state) do
+    case :ets.lookup(__MODULE__, address) do
+      [{^address, device}] ->
+        device = struct(device, paid: device.paid + amount)
+        :ets.insert(__MODULE__, {address, device})
+        {:reply, :ok, state}
 
       _ ->
-        {:reply, {:error, :no_device}, state}
+        {:stop, :normal, state}
     end
   end
 
-  def handle_info(:check_interval, {devices, _users} = state) do
+  def handle_cast(:check_interval, {address} = state) do
     # check device working
-    Enum.each(devices, fn {addr, dev} ->
-      Task.async(fn ->
-        url = "http://#{dev.ip}:#{dev.api_port}"
+    case :ets.lookup(__MODULE__, address) do
+      [{^address, device}] ->
+        Task.async(fn ->
+          url = "http://#{device.ip}:#{device.api_port}"
 
-        case JSONRPC2.Client.HTTP.call(url, "device_ping", []) do
-          {:ok, _} ->
-            # nothing
-            nil
+          case JSONRPC2.Client.HTTP.call(url, "device_ping", []) do
+            {:ok, _} ->
+              :ping_success
 
-          {:error, _} ->
-            Logger.info("device ping failed. #{addr}")
-            {:ok, pid} = DappDemo.ServerRegistry.lookup(dev.server_address)
-            DappDemo.Server.device_release(pid, dev.address)
-        end
-      end)
-    end)
+            {:error, _} ->
+              :ping_failed
+          end
+        end)
 
-    Process.send_after(self(), :check_interval, @check_interval)
-    {:noreply, state}
+        {:noreply, state}
+
+      _ ->
+        {:stop, :normal, state}
+    end
+  end
+
+  def handle_info({_ref, :ping_failed}, {address} = state) do
+    Logger.info("device ping failed. #{address}")
+    {:stop, :normal, state}
   end
 
   def handle_info(_msg, state) do

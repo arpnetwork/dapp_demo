@@ -52,7 +52,8 @@ defmodule DappDemo.Server do
             ip: result["ip"],
             port: result["port"],
             price: price,
-            api_port: result["port"] + 1
+            api_port: result["port"] + 1,
+            inserted_at: DateTime.utc_now() |> DateTime.to_unix()
           }
 
           GenServer.call(pid, {:add_device, dev})
@@ -74,15 +75,25 @@ defmodule DappDemo.Server do
   end
 
   def get(pid) do
-    GenServer.call(pid, :get)
+    if Process.alive?(pid) do
+      GenServer.call(pid, :get)
+    else
+      nil
+    end
   end
 
   def pay(pid, dev_address, amount) do
-    GenServer.cast(pid, {:pay, dev_address, amount})
+    if Process.alive?(pid) do
+      GenServer.cast(pid, {:pay, dev_address, amount})
+    else
+      {:error, "internal error"}
+    end
   end
 
   def unbind(pid) do
-    GenServer.cast(pid, :unbind)
+    if Process.alive?(pid) do
+      GenServer.cast(pid, :unbind)
+    end
   end
 
   # Callbacks
@@ -90,51 +101,70 @@ defmodule DappDemo.Server do
   def init(opts) do
     address = opts[:address]
     amount = opts[:amount]
+    server_tab = opts[:server_tab]
 
     bind(address, amount)
 
     Process.send_after(self(), :check_interval, @check_interval)
-    {:ok, {%__MODULE__{address: address, amount: amount}, %{}}}
+    {:ok, {%__MODULE__{address: address, amount: amount}, %{}, %{}, server_tab}}
   end
 
-  def handle_call({:add_device, device}, _from, {server, devices} = state) do
+  def terminate(_reason, {server, devices, _refs, server_tab}) do
+    :ets.delete(server_tab, server.address)
+    # remove all devices
+    Enum.each(devices, fn {_, pid} ->
+      Device.release(pid)
+    end)
+  end
+
+  def handle_call({:add_device, device}, _from, {server, devices, refs, tab} = state) do
     if Map.has_key?(devices, device.address) do
       {:reply, {:error, :duplicate_device}, state}
     else
-      devices = Map.put(devices, device.address, true)
+      case DynamicSupervisor.start_child(
+             DappDemo.DSupervisor,
+             {DappDemo.Device, [device: device]}
+           ) do
+        {:ok, pid} ->
+          ref = Process.monitor(pid)
 
-      case Device.insert(device) do
-        :ok ->
-          {:reply, {:ok, device}, {server, devices}}
+          devices = Map.put(devices, device.address, pid)
+          refs = Map.put(refs, ref, device.address)
 
-        {:error, error} ->
-          {:reply, {:error, error}, state}
+          {:reply, {:ok, device}, {server, devices, refs, tab}}
+
+        err ->
+          {:reply, err, state}
       end
     end
   end
 
-  def handle_call({:remove_device, device_addr}, _from, {server, devices} = state) do
+  def handle_call({:remove_device, device_addr}, _from, {server, devices, refs, tab} = state) do
     if Map.has_key?(devices, device_addr) do
-      devices = Map.delete(devices, device_addr)
-      Device.remove(device_addr)
-      {:reply, :ok, {server, devices}}
+      {pid, devices} = Map.pop(devices, device_addr)
+
+      if pid do
+        Device.release(pid)
+      end
+
+      {:reply, :ok, {server, devices, refs, tab}}
     else
       {:reply, {:error, :no_device}, state}
     end
   end
 
-  def handle_call(:get, _from, {server, _devices} = state) do
+  def handle_call(:get, _from, {server, _devices, _refs, _} = state) do
     {:reply, server, state}
   end
 
-  def handle_cast({:pay, dev_address, amount}, {server, devices}) do
+  def handle_cast({:pay, dev_address, amount}, {server, devices, refs, tab}) do
     new_paid = server.paid + amount
     promise = Account.promise(server.cid, server.address, new_paid)
-
     data = [Poison.encode!(promise), dev_address]
 
-    Device.add_paid(dev_address, amount)
-    server = Map.put(server, :paid, new_paid)
+    pid = Map.get(devices, dev_address, nil)
+    Device.add_paid(pid, amount)
+    server = struct(server, paid: new_paid)
     write_file(server.address, server)
 
     case send_request(server.address, server.ip, server.port, "account_pay", data) do
@@ -145,20 +175,20 @@ defmodule DappDemo.Server do
         Logger.error("send pay failed. #{inspect(err)}")
     end
 
-    {:noreply, {server, devices}}
+    {:noreply, {server, devices, refs, tab}}
   end
 
-  def handle_cast(:unbind, {server, devices} = state) do
+  def handle_cast(:unbind, {server, devices, refs, tab} = state) do
     if server.state == @state_ok do
       unbind(self(), server, devices)
       server = struct(server, state: @state_first_unbind_start)
-      {:noreply, {server, devices}}
+      {:noreply, {server, devices, refs, tab}}
     else
       {:noreply, state}
     end
   end
 
-  def handle_info(:check_interval, {server, devices}) do
+  def handle_info(:check_interval, {server, devices, refs, tab}) do
     # check server register expired
     now = DateTime.utc_now() |> DateTime.to_unix()
     %{expired: register_expired} = Contract.get_server_by_addr(server.address)
@@ -201,52 +231,58 @@ defmodule DappDemo.Server do
       end
 
     Process.send_after(self(), :check_interval, @check_interval)
-    {:noreply, {server, devices}}
+    {:noreply, {server, devices, refs, tab}}
   end
 
-  def handle_info({_ref, {:bind_result, result, data}}, {server, devices}) do
+  def handle_info({_ref, {:bind_result, result, data}}, {server, devices, refs, tab}) do
     Logger.info("bound server #{server.address} #{result}")
 
     if :success == result do
       Config.add_server(data.address, data.amount)
-      {:noreply, {data, devices}}
+      {:noreply, {data, devices, refs, tab}}
     else
       Config.remove_server(server.address)
-      {:stop, :normal, {server, devices}}
+      {:stop, :normal, {server, devices, refs, tab}}
     end
   end
 
-  def handle_info({_ref, {:unbind_result, result}}, {server, devices}) do
+  def handle_info({_ref, {:unbind_result, result}}, {server, devices, refs, tab}) do
     Logger.info("unbound server #{server.address} #{result}")
 
     if :success == result do
       case server.state do
         @state_first_unbind_start ->
           server = struct(server, state: @state_first_unbind_end)
-          {:noreply, {server, devices}}
+          {:noreply, {server, devices, refs, tab}}
 
         @state_second_unbind_start ->
           server = struct(server, state: @state_second_unbind_end)
-          {:stop, :normal, {server, devices}}
+          {:stop, :normal, {server, devices, refs, tab}}
       end
     else
       case server.state do
         @state_first_unbind_start ->
           server = struct(server, state: @state_ok)
-          {:noreply, {server, devices}}
+          {:noreply, {server, devices, refs, tab}}
 
         @state_second_unbind_start ->
           server = struct(server, state: @state_first_unbind_end)
-          {:noreply, {server, devices}}
+          {:noreply, {server, devices, refs, tab}}
       end
     end
   end
 
-  def handle_info({_ref, {:increase_approval_result, result}}, {server, devices}) do
+  def handle_info({_ref, {:increase_approval_result, result}}, {server, devices, refs, tab}) do
     Logger.info("increase approval result #{server.address} #{result}")
 
-    server = Map.delete(server, :increase_approval_task)
-    {:noreply, {server, devices}}
+    server = struct(server, increase_approval_task: nil)
+    {:noreply, {server, devices, refs, tab}}
+  end
+
+  def handle_info({:DOWN, ref, :process, _pid, _reason}, {server, devices, refs, tab}) do
+    {address, refs} = Map.pop(refs, ref)
+    devices = Map.delete(devices, address)
+    {:noreply, {server, devices, refs, tab}}
   end
 
   def handle_info(_msg, state) do
