@@ -7,7 +7,7 @@ defmodule DappDemo.Server do
   alias DappDemo.API.Jsonrpc2.Protocol
   alias DappDemo.{Account, Config, Contract, Device, SendNonce, Utils}
 
-  use GenServer
+  use GenServer, restart: :transient
 
   @data_path Application.get_env(:dapp_demo, :data_dir)
 
@@ -94,7 +94,7 @@ defmodule DappDemo.Server do
     bind(address, amount)
 
     Process.send_after(self(), :check_interval, @check_interval)
-    {:ok, {%__MODULE__{}, %{}}}
+    {:ok, {%__MODULE__{address: address, amount: amount}, %{}}}
   end
 
   def handle_call({:add_device, device}, _from, {server, devices} = state) do
@@ -127,23 +127,25 @@ defmodule DappDemo.Server do
     {:reply, server, state}
   end
 
-  def handle_cast({:pay, dev_address, amount}, {server, devices} = state) do
+  def handle_cast({:pay, dev_address, amount}, {server, devices}) do
     new_paid = server.paid + amount
     promise = Account.promise(server.cid, server.address, new_paid)
 
     data = [Poison.encode!(promise), dev_address]
 
-    with {:ok, _result} <-
-           send_request(server.address, server.ip, server.port, "account_pay", data),
-         :ok <- Device.add_paid(dev_address, amount) do
-      server = Map.put(server, :paid, new_paid)
-      write_file(server.address, server)
-      {:noreply, {server, devices}}
-    else
-      err ->
-        Logger.error(inspect(err))
-        {:noreply, state}
+    Device.add_paid(dev_address, amount)
+    server = Map.put(server, :paid, new_paid)
+    write_file(server.address, server)
+
+    case send_request(server.address, server.ip, server.port, "account_pay", data) do
+      {:ok, _result} ->
+        nil
+
+      {:error, err} ->
+        Logger.error("send pay failed. #{inspect(err)}")
     end
+
+    {:noreply, {server, devices}}
   end
 
   def handle_cast(:unbind, {server, devices} = state) do
@@ -203,13 +205,13 @@ defmodule DappDemo.Server do
   end
 
   def handle_info({_ref, {:bind_result, result, data}}, {server, devices}) do
-    Logger.info("bound server #{data.address} #{result}")
+    Logger.info("bound server #{server.address} #{result}")
 
     if :success == result do
       Config.add_server(data.address, data.amount)
       {:noreply, {data, devices}}
     else
-      Config.remove_server(data.address)
+      Config.remove_server(server.address)
       {:stop, :normal, {server, devices}}
     end
   end
