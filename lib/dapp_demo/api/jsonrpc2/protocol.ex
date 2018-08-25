@@ -26,6 +26,11 @@ defmodule DappDemo.API.Jsonrpc2.Protocol do
     Crypto.eth_sign(msg, private_key)
   end
 
+  def sign(method, params, to_addr, private_key) do
+    msg = encode_sign_msg(method, params, to_addr)
+    Crypto.eth_sign(msg, private_key)
+  end
+
   def verify_resp_sign(result, self_addr, server_addr) do
     sign = result["sign"]
     data = Map.delete(result, "sign")
@@ -70,6 +75,11 @@ defmodule DappDemo.API.Jsonrpc2.Protocol do
   defp encode_sign_msg(method, params, nonce, to_addr)
        when is_binary(method) and is_list(params) and is_binary(to_addr) do
     "#{method}:#{Enum.join(params, ":")}:#{nonce}:#{to_addr}"
+  end
+
+  defp encode_sign_msg(method, params, to_addr)
+       when is_binary(method) and is_list(params) and is_binary(to_addr) do
+    "#{method}:#{Enum.join(params, ":")}:#{to_addr}"
   end
 
   # Encode params for JSONRPC2 response sign.

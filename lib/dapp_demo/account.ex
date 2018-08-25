@@ -95,4 +95,17 @@ defmodule DappDemo.Account do
       sign: Crypto.eth_sign(data, private_key)
     }
   end
+
+  def verify_promise(promise) do
+    decoded_cid = Utils.decode_hex(promise[:cid])
+    decoded_from = promise[:from] |> String.slice(2..-1) |> Base.decode16!(case: :mixed)
+    decoded_to = promise[:to] |> String.slice(2..-1) |> Base.decode16!(case: :mixed)
+    decoded_amount = Utils.decode_hex(promise[:amount])
+
+    data =
+      <<decoded_cid::size(256), decoded_from::binary-size(20), decoded_to::binary-size(20),
+        decoded_amount::size(256)>>
+
+    Crypto.eth_verify(data, promise[:sign], public_key())
+  end
 end

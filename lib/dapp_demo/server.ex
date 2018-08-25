@@ -239,6 +239,7 @@ defmodule DappDemo.Server do
 
     if :success == result do
       Config.add_server(data.address, data.amount)
+      write_file(data.address, data)
       {:noreply, {data, devices, refs, tab}}
     else
       Config.remove_server(server.address)
@@ -317,6 +318,7 @@ defmodule DappDemo.Server do
       self_address = Account.address()
 
       %{ip: ip, port: port} = Contract.get_server_by_addr(address)
+      server_api_port = port + 1
 
       state =
         with true <- ip != "0.0.0.0",
@@ -335,9 +337,20 @@ defmodule DappDemo.Server do
 
       if state do
         %{cid: cid} = Contract.bank_allowance(self_address, address)
+
+        last_promise =
+          get_last_promise(private_key, self_address, ip, server_api_port, address, cid)
+
+        server_paid =
+          if last_promise && Utils.decode_hex(last_promise.cid) == cid do
+            Utils.decode_hex(last_promise.amount)
+          else
+            0
+          end
+
         file_data = read_file(address)
 
-        paid =
+        local_paid =
           if file_data && file_data.cid == cid do
             file_data.paid
           else
@@ -348,10 +361,10 @@ defmodule DappDemo.Server do
         data = %__MODULE__{
           address: address,
           ip: ip,
-          port: port + 1,
+          port: server_api_port,
           cid: cid,
           amount: amount,
-          paid: paid,
+          paid: max(server_paid, local_paid),
           state: state
         }
 
@@ -484,6 +497,24 @@ defmodule DappDemo.Server do
       end
     else
       :ok
+    end
+  end
+
+  defp get_last_promise(private_key, address, ip, port, server_address, cid) do
+    method = "account_last"
+    url = "http://#{ip}:#{port}"
+    data = [Utils.encode_int(cid)]
+
+    sign = Protocol.sign(method, data, server_address, private_key)
+
+    with {:ok, result} <- HTTP.call(url, method, data ++ [sign]),
+         true <- Protocol.verify_resp_sign(result, address, server_address),
+         {:ok, promise} <- Poison.decode(result["promise"], keys: :atoms!),
+         :ok <- Account.verify_promise(promise) do
+      promise
+    else
+      _ ->
+        nil
     end
   end
 
