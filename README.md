@@ -1,6 +1,6 @@
 # DappDemo
 
-**Demo of Dapp**
+**Demo of Dapp. Request device from ARP server and do whatever you want.**
 
 ## Installation
 
@@ -21,6 +21,6 @@ be found at [https://hexdocs.pm/dapp_demo](https://hexdocs.pm/dapp_demo).
 
 ## License
 
-ARP Server source code is released under Apache 2 License.
+Dapp demo source code is released under Apache 2 License.
 
 Check [LICENSE](LICENSE) file for more information.
