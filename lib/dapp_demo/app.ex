@@ -33,6 +33,8 @@ defmodule DappDemo.App do
   def install_notify(address, result, package) do
     {:ok, dev} = DevicePool.lookup(address)
 
+    DappDemo.Auto.install_finish(address)
+
     case result do
       @app_install_success ->
         Device.install_success(dev.pid, package)

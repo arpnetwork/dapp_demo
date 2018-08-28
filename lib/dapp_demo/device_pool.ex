@@ -5,7 +5,7 @@ defmodule DappDemo.DevicePool do
 
   use GenServer
 
-  @check_interval 9_000
+  @check_interval 1_000
 
   def start_link(_opts) do
     GenServer.start_link(__MODULE__, [], name: __MODULE__)
@@ -16,6 +16,10 @@ defmodule DappDemo.DevicePool do
       [{^address, dev}] -> {:ok, dev}
       [] -> :error
     end
+  end
+
+  def lookup_all() do
+    :ets.match_object(DappDemo.Device, {:"$1", :"$2"})
   end
 
   def lookup_by_session(session) do

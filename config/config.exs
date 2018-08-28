@@ -33,11 +33,12 @@ import_config "#{Mix.env()}.exs"
 
 config :dapp_demo,
   data_dir: System.user_home() |> Path.join(".dapp_demo"),
-  ip: "192.168.0.164",
   port: 8080,
   amount: 5000 * trunc(1.0e18),
-  price: 10 * trunc(1.0e18),
+  price: 100 * trunc(1.0e18),
   app_data_file: "public/data/app_list.json",
+  app_data_file2: "public/data/app_packages.json",
   password: "123456789",
+  ip: nil,
   keystore_file: nil,
   bind_server: nil

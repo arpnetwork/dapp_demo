@@ -21,6 +21,22 @@ defmodule DappDemo.Config do
           :ets.new(__MODULE__, [:named_table, read_concurrency: true])
       end
 
+    default_config = Application.get_all_env(:dapp_demo)
+
+    config =
+      Enum.reduce(default_config, [], fn {key, value}, acc ->
+        unless is_nil(value) do
+          [{key, value} | acc]
+        else
+          acc
+        end
+      end)
+
+    if length(config) > 0 do
+      :ets.insert(__MODULE__, config)
+      write_file(tab)
+    end
+
     {:ok, tab}
   end
 
@@ -36,6 +52,10 @@ defmodule DappDemo.Config do
       [] ->
         nil
     end
+  end
+
+  def get_all() do
+    :ets.match_object(__MODULE__, {:"$1", :"$2"})
   end
 
   def set_keystore(keystore) do
@@ -72,13 +92,13 @@ defmodule DappDemo.Config do
 
   def handle_cast({:set, key, value}, tab) do
     :ets.insert(tab, {key, value})
-    :ets.tab2file(tab, @config_path, extended_info: [:md5sum])
+    write_file(tab)
     {:noreply, tab}
   end
 
   def handle_cast({:set_keystore, keystore}, tab) do
     :ets.insert(tab, {:keystore, keystore})
-    :ets.tab2file(tab, @config_path, extended_info: [:md5sum])
+    write_file(tab)
     {:noreply, tab}
   end
 
@@ -86,7 +106,7 @@ defmodule DappDemo.Config do
     servers = get_servers()
     new_servers = Map.put(servers, server, amount)
     :ets.insert(tab, {:servers, new_servers})
-    :ets.tab2file(tab, @config_path, extended_info: [:md5sum])
+    write_file(tab)
     {:noreply, tab}
   end
 
@@ -94,7 +114,11 @@ defmodule DappDemo.Config do
     servers = get_servers()
     new_servers = Map.delete(servers, server)
     :ets.insert(tab, {:servers, new_servers})
-    :ets.tab2file(tab, @config_path, extended_info: [:md5sum])
+    write_file(tab)
     {:noreply, tab}
+  end
+
+  def write_file(tab) do
+    :ets.tab2file(tab, @config_path, extended_info: [:md5sum])
   end
 end

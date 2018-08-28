@@ -39,7 +39,8 @@ defmodule DappDemo.Application do
         options: [
           port: @http_port
         ]
-      )
+      ),
+      DappDemo.Auto
     ]
 
     # See https://hexdocs.pm/elixir/Supervisor.html

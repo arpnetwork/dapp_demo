@@ -18,6 +18,10 @@ defmodule DappDemo.ServerRegistry do
     end
   end
 
+  def lookup_all() do
+    :ets.match_object(__MODULE__, {:"$1", :"$2"})
+  end
+
   def init(_opts) do
     server_tab =
       :ets.new(__MODULE__, [
