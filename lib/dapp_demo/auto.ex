@@ -6,7 +6,7 @@ defmodule DappDemo.Auto do
 
   use GenServer
 
-  @check_interval 1000
+  @check_interval 10000
   @total_device 100
   @price Application.get_env(:dapp_demo, :price)
   @ip Application.get_env(:dapp_demo, :ip)
@@ -80,7 +80,7 @@ defmodule DappDemo.Auto do
     {:noreply, {apps, installed}}
   rescue
     e ->
-      Logger.error(e)
+      Logger.warn(inspect(e))
       {:noreply, {apps, installed}}
   end
 end

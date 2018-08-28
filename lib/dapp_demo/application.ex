@@ -10,6 +10,7 @@ defmodule DappDemo.Application do
 
   def start(_type, _args) do
     DappDemo.Account.init()
+    DappDemo.Nonce.init()
 
     # List all child processes to be supervised
     children = [
@@ -19,8 +20,6 @@ defmodule DappDemo.Application do
       DappDemo.Config,
       DappDemo.ServerRegistry,
       DappDemo.DevicePool,
-      DappDemo.API.Jsonrpc2.Nonce,
-      DappDemo.SendNonce,
       Plug.Adapters.Cowboy2.child_spec(
         scheme: :http,
         plug:

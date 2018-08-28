@@ -3,7 +3,7 @@ defmodule DappDemo.App do
 
   alias JSONRPC2.Client.HTTP
   alias DappDemo.API.Jsonrpc2.Protocol
-  alias DappDemo.{Account, Server, ServerRegistry, Device, DevicePool, SendNonce, Utils}
+  alias DappDemo.{Account, Server, ServerRegistry, Device, DevicePool, Nonce, Utils}
 
   @app_install_success 0
   @app_download_failed 1
@@ -66,7 +66,7 @@ defmodule DappDemo.App do
     private_key = Account.private_key()
     address = Account.address()
 
-    nonce = SendNonce.get_and_update_nonce(address) |> Utils.encode_int()
+    nonce = Nonce.get_and_update_nonce(address, dev_addr) |> Utils.encode_int()
     url = "http://#{ip}:#{port}"
 
     sign = Protocol.sign(method, params, nonce, dev_addr, private_key)

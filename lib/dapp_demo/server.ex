@@ -5,7 +5,7 @@ defmodule DappDemo.Server do
 
   alias JSONRPC2.Client.HTTP
   alias DappDemo.API.Jsonrpc2.Protocol
-  alias DappDemo.{Account, Config, Contract, Device, SendNonce, Utils}
+  alias DappDemo.{Account, Config, Contract, Device, Nonce, Utils}
 
   use GenServer, restart: :transient
 
@@ -70,8 +70,8 @@ defmodule DappDemo.Server do
     method = "device_release"
     sign_data = [device_addr]
     server = get(pid)
-    send_request(server.address, server.ip, server.port, method, sign_data)
     GenServer.call(pid, {:release_device, device_addr})
+    send_request(server.address, server.ip, server.port, method, sign_data)
   end
 
   def get(pid) do
@@ -294,7 +294,7 @@ defmodule DappDemo.Server do
     private_key = Account.private_key()
     address = Account.address()
 
-    nonce = SendNonce.get_and_update_nonce(server_address) |> Utils.encode_int()
+    nonce = Nonce.get_and_update_nonce(address, server_address) |> Utils.encode_int()
     url = "http://#{ip}:#{port}"
 
     sign = Protocol.sign(method, data, nonce, server_address, private_key)
