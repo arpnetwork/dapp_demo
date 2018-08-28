@@ -23,6 +23,10 @@ defmodule DappDemo.Admin do
          :ok <- check_arp_balance(address) do
       servers = Config.get_servers()
 
+      if config[:bind_server] do
+        ServerRegistry.create(config[:bind_server], Config.get(:amount))
+      end
+
       if Map.size(servers) > 0 do
         Enum.each(servers, fn {address, amount} ->
           ServerRegistry.create(address, amount)
