@@ -81,6 +81,7 @@ defmodule DappDemo.Auto do
   rescue
     e ->
       Logger.warn(inspect(e))
+      Process.send_after(self(), :check_interval, @check_interval)
       {:noreply, {apps, installed}}
   end
 end
