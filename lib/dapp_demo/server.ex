@@ -67,11 +67,11 @@ defmodule DappDemo.Server do
   end
 
   def device_release(pid, device_addr) do
-    method = "device_release"
-    sign_data = [device_addr]
-    server = get(pid)
-    GenServer.call(pid, {:release_device, device_addr})
-    send_request(server.address, server.ip, server.port, method, sign_data)
+    if Process.alive?(pid) do
+      GenServer.call(pid, {:release_device, device_addr})
+    else
+      :error
+    end
   end
 
   def get(pid) do
