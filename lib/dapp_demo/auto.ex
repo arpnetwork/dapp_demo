@@ -53,7 +53,7 @@ defmodule DappDemo.Auto do
 
     installed =
       Enum.reduce(installed, %{}, fn {addr, pkg}, acc ->
-        if List.keymember?(devices, addr, 1) do
+        if List.keymember?(devices, addr, 0) do
           Map.put(acc, addr, pkg)
         else
           acc

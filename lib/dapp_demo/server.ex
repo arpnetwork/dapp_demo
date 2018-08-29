@@ -283,6 +283,11 @@ defmodule DappDemo.Server do
   def handle_info({:DOWN, ref, :process, _pid, _reason}, {server, devices, refs, tab}) do
     {address, refs} = Map.pop(refs, ref)
     devices = Map.delete(devices, address)
+
+    method = "device_release"
+    sign_data = [address]
+    send_request(server.address, server.ip, server.port, method, sign_data)
+
     {:noreply, {server, devices, refs, tab}}
   end
 
