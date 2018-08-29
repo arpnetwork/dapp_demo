@@ -284,9 +284,11 @@ defmodule DappDemo.Server do
     {address, refs} = Map.pop(refs, ref)
     devices = Map.delete(devices, address)
 
-    method = "device_release"
-    sign_data = [address]
-    send_request(server.address, server.ip, server.port, method, sign_data)
+    if address do
+      method = "device_release"
+      sign_data = [address]
+      send_request(server.address, server.ip, server.port, method, sign_data)
+    end
 
     {:noreply, {server, devices, refs, tab}}
   end
