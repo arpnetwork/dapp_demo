@@ -7,6 +7,7 @@ defmodule DappDemo.Auto do
 
   @check_interval 10000
   @total_device 100
+  @install_timeout 600
 
   def start_link(_opts) do
     GenServer.start_link(__MODULE__, [], name: __MODULE__)
@@ -17,17 +18,18 @@ defmodule DappDemo.Auto do
   end
 
   def init(_opts) do
-    installed = %{}
+    # installing = %{"address" => {"package", timeout}}
+    installing = %{}
 
     Process.send_after(self(), :check_interval, @check_interval)
-    {:ok, installed}
+    {:ok, installing}
   end
 
-  def handle_cast({:install_finish, address}, installed) do
-    {:noreply, Map.delete(installed, address)}
+  def handle_cast({:install_finish, address}, installing) do
+    {:noreply, Map.delete(installing, address)}
   end
 
-  def handle_info(:check_interval, installed) do
+  def handle_info(:check_interval, installing) do
     apps =
       with {:ok, data} <- File.read(Config.get(:app_data_file2)),
            {:ok, list} <- Poison.decode(data) do
@@ -40,6 +42,8 @@ defmodule DappDemo.Auto do
     servers = ServerRegistry.lookup_all()
     devices = DevicePool.lookup_all()
 
+    now = DateTime.utc_now() |> DateTime.to_unix()
+
     Enum.each(servers, fn {_, pid} ->
       if length(devices) < @total_device do
         DappDemo.Server.device_request(
@@ -51,48 +55,71 @@ defmodule DappDemo.Auto do
       end
     end)
 
-    installed =
-      Enum.reduce(installed, %{}, fn {addr, pkg}, acc ->
+    # release timeout device.
+    devices =
+      Enum.reduce(devices, [], fn {addr, dev} = item, acc ->
+        case Map.get(installing, addr) do
+          {_, timeout} when now > timeout ->
+            Logger.warn("install timeout. #{dev.address}")
+            release_device(dev.server_address, dev.address)
+            acc
+
+          _ ->
+            [item | acc]
+        end
+      end)
+
+    # filter out invalid install info
+    installing =
+      Enum.reduce(installing, %{}, fn {addr, info}, acc ->
         if List.keymember?(devices, addr, 0) do
-          Map.put(acc, addr, pkg)
+          Map.put(acc, addr, info)
         else
           acc
         end
       end)
 
-    installed =
-      Enum.reduce(devices, installed, fn {_, dev}, acc ->
-        if is_nil(dev.package) && !Map.has_key?(installed, dev.address) do
-          {:ok, app} = Enum.fetch(apps, :rand.uniform(length(apps)) - 1)
+    installing =
+      if length(apps) > 0 do
+        Enum.reduce(devices, installing, fn {_, dev}, acc ->
+          if is_nil(dev.package) && !Map.has_key?(installing, dev.address) do
+            {:ok, app} = Enum.fetch(apps, :rand.uniform(length(apps)) - 1)
 
-          try do
-            if :ok ==
-                 DappDemo.App.install(dev, app["package"], app["url"], app["size"], app["md5"]) do
-              Map.put(acc, dev.address, app["package"])
-            else
-              acc
-            end
-          rescue
-            e ->
-              Logger.warn(inspect(e))
+            try do
+              res = DappDemo.App.install(dev, app["package"], app["url"], app["size"], app["md5"])
 
-              case ServerRegistry.lookup(dev.server_address) do
-                {:ok, pid} ->
-                  Server.device_release(pid, dev.address)
-
-                _ ->
-                  nil
+              if :ok == res do
+                Map.put(acc, dev.address, {app["package"], now + @install_timeout})
+              else
+                Logger.warn("send install fail. #{inspect(res)}")
+                acc
               end
-
-              acc
+            rescue
+              e ->
+                Logger.warn("send install fail. #{inspect(e)}")
+                release_device(dev.server_address, dev.address)
+                acc
+            end
+          else
+            acc
           end
-        else
-          acc
-        end
-      end)
+        end)
+      else
+        installing
+      end
 
     Process.send_after(self(), :check_interval, @check_interval)
 
-    {:noreply, installed}
+    {:noreply, installing}
+  end
+
+  def release_device(server_address, device_address) do
+    case ServerRegistry.lookup(server_address) do
+      {:ok, pid} ->
+        Server.device_release(pid, device_address)
+
+      _ ->
+        nil
+    end
   end
 end
