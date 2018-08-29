@@ -295,6 +295,16 @@ defmodule DappDemo.Server do
     {:noreply, state}
   end
 
+  def get_nonce(ip, port) do
+    case HTTP.call("http://#{ip}:#{port}", "nonce_get", [Account.address()]) do
+      {:ok, result} ->
+        Utils.decode_hex(result["nonce"])
+
+      {:error, _} ->
+        0
+    end
+  end
+
   def send_request(server_address, ip, port, method, data) do
     private_key = Account.private_key()
     address = Account.address()
@@ -312,8 +322,13 @@ defmodule DappDemo.Server do
           {:error, :verify_error}
         end
 
-      {:error, err} ->
-        {:error, err}
+      {:error, %{"message" => "Nonce too low"}} ->
+        nonce = get_nonce(ip, port) + 1
+        Nonce.check_and_update_nonce(address, server_address, nonce)
+        send_request(server_address, ip, port, method, data)
+
+      err ->
+        err
     end
   end
 
