@@ -163,6 +163,9 @@ defmodule DappDemo.Crypto do
     else
       :error
     end
+  rescue
+    _ ->
+      :error
   end
 
   defp decrpt_key(%{} = keystore, auth, version) do

@@ -3,18 +3,20 @@ defmodule DappDemo.App do
 
   alias JSONRPC2.Client.HTTP
   alias DappDemo.API.Jsonrpc2.Protocol
-  alias DappDemo.{Account, Server, ServerRegistry, Device, DevicePool, Nonce, Utils}
+  alias DappDemo.{Account, Config, Server, ServerRegistry, Device, DevicePool, Nonce, Utils}
 
   @app_install_success 0
   @app_download_failed 1
   @app_install_failed 2
 
-  @app_data_file Application.get_env(:dapp_demo, :app_data_file)
-
   def list() do
-    with {:ok, data} <- File.read(@app_data_file),
+    file = Config.get(:app_list)
+
+    with {:ok, data} <- File.read(file),
          {:ok, list} <- Poison.decode(data) do
-      list
+      Enum.map(list, fn m ->
+        Map.take(m, ["title", "description", "poster", "logo", "rating", "package_name"])
+      end)
     else
       _ ->
         []

@@ -21,10 +21,10 @@ defmodule DappDemo.Config do
           :ets.new(__MODULE__, [:named_table, read_concurrency: true])
       end
 
-    default_config = Application.get_all_env(:dapp_demo)
+    config = Application.get_all_env(:dapp_demo)
 
     config =
-      Enum.reduce(default_config, [], fn {key, value}, acc ->
+      Enum.reduce(config, [], fn {key, value}, acc ->
         unless is_nil(value) do
           [{key, value} | acc]
         else
@@ -52,6 +52,10 @@ defmodule DappDemo.Config do
       [] ->
         nil
     end
+  end
+
+  def delete(key) do
+    :ets.delete(__MODULE__, key)
   end
 
   def get_all() do
@@ -118,7 +122,7 @@ defmodule DappDemo.Config do
     {:noreply, tab}
   end
 
-  def write_file(tab) do
+  defp write_file(tab) do
     :ets.tab2file(tab, @config_path, extended_info: [:md5sum])
   end
 end

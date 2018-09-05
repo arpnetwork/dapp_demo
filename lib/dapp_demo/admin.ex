@@ -6,25 +6,26 @@ defmodule DappDemo.Admin do
   require Logger
 
   alias DappDemo.Account
+  alias DappDemo.Auto
   alias DappDemo.Contract
   alias DappDemo.Config
   alias DappDemo.Crypto
   alias DappDemo.ServerRegistry
 
-  def load_default() do
-    config = Application.get_all_env(:dapp_demo)
-    Config.set(:amount, config[:amount])
-    Config.set(:price, config[:price])
+  def start(auth) do
+    bind_server = Config.get(:bind_server)
+    amount = Config.get(:amount)
+    Application.put_env(:ethereumex, :url, Config.get(:eth_node))
 
-    keystore = read_keystore(config[:keystore_file]) || Config.get_keystore()
+    keystore = read_keystore(Config.get(:keystore_file)) || Config.get_keystore()
 
-    with {:ok, %{address: address}} <- Account.set_key(keystore, config[:password]),
+    with {:ok, %{address: address}} <- Account.set_key(keystore, auth),
          :ok <- check_eth_balance(address),
          :ok <- check_arp_balance(address) do
       servers = Config.get_servers()
 
-      if config[:bind_server] do
-        ServerRegistry.create(config[:bind_server], Config.get(:amount))
+      if bind_server do
+        ServerRegistry.create(bind_server, amount)
       end
 
       if Map.size(servers) > 0 do
@@ -32,7 +33,6 @@ defmodule DappDemo.Admin do
           ServerRegistry.create(address, amount)
         end)
       else
-        amount = Config.get(:amount)
         servers = Contract.get_bound_servers(Account.address())
 
         Enum.each(servers, fn address ->
@@ -40,11 +40,17 @@ defmodule DappDemo.Admin do
         end)
       end
 
+      Auto.start()
+
       :ok
     else
       error ->
         error
     end
+  end
+
+  def add_server(address, amount \\ nil) do
+    ServerRegistry.create(address, amount || Config.get(:amount))
   end
 
   def verify_password(password) do

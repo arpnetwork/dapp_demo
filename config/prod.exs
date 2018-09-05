@@ -6,6 +6,3 @@ config :dapp_demo,
   registry_contract_address: "",
   bank_contract_address: "",
   first_registry_block: ""
-
-config :ethereumex,
-  url: ""

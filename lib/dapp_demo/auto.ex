@@ -13,6 +13,10 @@ defmodule DappDemo.Auto do
     GenServer.start_link(__MODULE__, [], name: __MODULE__)
   end
 
+  def start() do
+    Process.send_after(__MODULE__, :check_interval, @check_interval)
+  end
+
   def install_finish(address) do
     GenServer.cast(__MODULE__, {:install_finish, address})
   end
@@ -21,7 +25,6 @@ defmodule DappDemo.Auto do
     # installing = %{"address" => {"package", timeout}}
     installing = %{}
 
-    Process.send_after(self(), :check_interval, @check_interval)
     {:ok, installing}
   end
 
@@ -31,7 +34,7 @@ defmodule DappDemo.Auto do
 
   def handle_info(:check_interval, installing) do
     apps =
-      with {:ok, data} <- File.read(Config.get(:app_data_file2)),
+      with {:ok, data} <- File.read(Config.get(:app_list)),
            {:ok, list} <- Poison.decode(data) do
         list
       else
@@ -86,10 +89,17 @@ defmodule DappDemo.Auto do
             {:ok, app} = Enum.fetch(apps, :rand.uniform(length(apps)) - 1)
 
             try do
-              res = DappDemo.App.install(dev, app["package"], app["url"], app["size"], app["md5"])
+              res =
+                DappDemo.App.install(
+                  dev,
+                  app["package_name"],
+                  app["url"],
+                  app["size"],
+                  app["md5"]
+                )
 
               if :ok == res do
-                Map.put(acc, dev.address, {app["package"], now + @install_timeout})
+                Map.put(acc, dev.address, {app["package_name"], now + @install_timeout})
               else
                 Logger.warn("send install fail. #{inspect(res)}")
                 acc

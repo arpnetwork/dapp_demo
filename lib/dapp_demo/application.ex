@@ -45,8 +45,6 @@ defmodule DappDemo.Application do
     # See https://hexdocs.pm/elixir/Supervisor.html
     # for other strategies and supported options
     opts = [strategy: :one_for_one, name: DappDemo.AppSupervisor]
-    res = Supervisor.start_link(children, opts)
-    DappDemo.Admin.load_default()
-    res
+    Supervisor.start_link(children, opts)
   end
 end
