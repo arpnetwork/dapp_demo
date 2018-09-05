@@ -97,14 +97,14 @@ defmodule DappDemo.Device do
     dev = opts[:device]
     dev = struct(dev, pid: self())
     :ets.insert(__MODULE__, {dev.address, dev})
-    {:ok, {dev.address}}
+    {:ok, %{address: dev.address, ping_failed: []}}
   end
 
-  def terminate(_reason, {address}) do
+  def terminate(_reason, %{address: address}) do
     :ets.delete(__MODULE__, address)
   end
 
-  def handle_call({:verify, session}, _from, {address} = state) do
+  def handle_call({:verify, session}, _from, %{address: address} = state) do
     with [{^address, device}] <- :ets.lookup(__MODULE__, address),
          ^session <- device.session do
       {:reply, :ok, state}
@@ -114,7 +114,7 @@ defmodule DappDemo.Device do
     end
   end
 
-  def handle_call({:idle, session}, _from, {address} = state) do
+  def handle_call({:idle, session}, _from, %{address: address} = state) do
     with [{^address, device}] <- :ets.lookup(__MODULE__, address),
          ^session <- device.session do
       device = struct(device, session: nil, state: @idle)
@@ -126,7 +126,7 @@ defmodule DappDemo.Device do
     end
   end
 
-  def handle_call({:request, package}, _from, {address} = state) do
+  def handle_call({:request, package}, _from, %{address: address} = state) do
     with [{^address, device}] <- :ets.lookup(__MODULE__, address),
          ^package <- device.package do
       session = Base.encode64(:crypto.strong_rand_bytes(96))
@@ -139,7 +139,7 @@ defmodule DappDemo.Device do
     end
   end
 
-  def handle_cast({:add_paid, amount}, {address} = state) do
+  def handle_cast({:add_paid, amount}, %{address: address} = state) do
     case :ets.lookup(__MODULE__, address) do
       [{^address, device}] ->
         device = struct(device, paid: device.paid + amount)
@@ -151,7 +151,7 @@ defmodule DappDemo.Device do
     end
   end
 
-  def handle_cast({:install_success, package}, {address} = state) do
+  def handle_cast({:install_success, package}, %{address: address} = state) do
     case :ets.lookup(__MODULE__, address) do
       [{^address, device}] ->
         device = struct(device, package: package)
@@ -163,7 +163,7 @@ defmodule DappDemo.Device do
     end
   end
 
-  def handle_cast(:uninstall_success, {address} = state) do
+  def handle_cast(:uninstall_success, %{address: address} = state) do
     case :ets.lookup(__MODULE__, address) do
       [{^address, device}] ->
         device = struct(device, package: nil)
@@ -179,7 +179,7 @@ defmodule DappDemo.Device do
     {:stop, :normal, state}
   end
 
-  def handle_cast(:check_interval, {address} = state) do
+  def handle_cast(:check_interval, %{address: address} = state) do
     # check device working
     case :ets.lookup(__MODULE__, address) do
       [{^address, device}] ->
@@ -202,9 +202,18 @@ defmodule DappDemo.Device do
     end
   end
 
-  def handle_info({_ref, :ping_failed}, {address} = state) do
-    Logger.info("device ping failed. #{address}")
-    {:stop, :normal, state}
+  def handle_info({_ref, :ping_failed}, %{address: address, ping_failed: ping_failed} = state) do
+    now = DateTime.utc_now() |> DateTime.to_unix()
+    Enum.drop_while(ping_failed, fn t -> t < now - 60 end)
+
+    ping_failed = List.insert_at(ping_failed, length(ping_failed), now)
+
+    if length(ping_failed) >= 10 do
+      Logger.warn("device ping failed 10 times in 1 minute. #{address}")
+      {:stop, :normal, state}
+    else
+      {:noreply, Map.put(state, :ping_failed, ping_failed)}
+    end
   end
 
   def handle_info(_msg, state) do
