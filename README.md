@@ -2,22 +2,42 @@
 
 **Demo of Dapp. Request device from ARP server and do whatever you want.**
 
-## Installation
+## Configuration
 
-If [available in Hex](https://hex.pm/docs/publish), the package can be installed
-by adding `dapp_demo` to your list of dependencies in `mix.exs`:
+Edit `config/config.exs` like:
 
 ```elixir
-def deps do
-  [
-    {:dapp_demo, "~> 0.1.0"}
-  ]
-end
+  config :dapp_demo,
+    data_dir: System.user_home() |> Path.join(".dapp_demo"),
+    port: 33223,
+    eth_node: "http://localhost:8545",
+    amount: 5_000 * round(1.0e18),
+    price: 50 * round(1.0e18),
+    app_list: "public/data/app_list.json",
+    ip: "192.168.0.164",
+    keystore_file: "/path/to/keystore/file",
+    max_device: 100
 ```
 
-Documentation can be generated with [ExDoc](https://github.com/elixir-lang/ex_doc)
-and published on [HexDocs](https://hexdocs.pm). Once published, the docs can
-be found at [https://hexdocs.pm/dapp_demo](https://hexdocs.pm/dapp_demo).
+## Run
+
+to start application:
+
+```bash
+$ iex -S mix
+```
+
+and unlock your account to start server, this will take a while:
+
+```bash
+iex(1)> DappDemo.Admin.start("keystore_password")
+```
+
+if first run, you need add ARP server:
+
+```bash
+iex(2)> DappDemo.Admin.add_server("server_address")
+```
 
 ## License
 
