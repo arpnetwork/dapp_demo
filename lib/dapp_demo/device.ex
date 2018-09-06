@@ -255,8 +255,11 @@ defmodule DappDemo.Device do
   def handle_call({:idle, session}, _from, %{address: address} = state) do
     with [{^address, device}] <- :ets.lookup(__MODULE__, address),
          ^session <- device.session do
-      device = struct(device, session: nil, state: @idle)
-      :ets.insert(__MODULE__, {address, device})
+      if device.state != @idle do
+        device = struct(device, session: nil, state: @idle)
+        :ets.insert(__MODULE__, {address, device})
+      end
+
       {:reply, :ok, state}
     else
       _ ->
@@ -296,6 +299,9 @@ defmodule DappDemo.Device do
       [{^address, device}] ->
         device =
           cond do
+            device.state != @installing ->
+              device
+
             result in [@app_download_failed, @app_install_failed] ->
               installing_packages = List.keydelete(device.installing_packages, package, 0)
               failed_packages = [package | device.failed_packages]
@@ -348,8 +354,10 @@ defmodule DappDemo.Device do
         check_ping(device)
 
         # check install timeout
-        device = check_install_timeout(device)
-        :ets.insert(__MODULE__, {address, device})
+        if device.state == @installing do
+          device = check_install_timeout(device)
+          :ets.insert(__MODULE__, {address, device})
+        end
 
         {:noreply, state}
 
