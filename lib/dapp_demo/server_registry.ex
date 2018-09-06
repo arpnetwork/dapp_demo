@@ -31,7 +31,17 @@ defmodule DappDemo.ServerRegistry do
         read_concurrency: true
       ])
 
+    # to save all device info
     :ets.new(DappDemo.Device, [
+      :named_table,
+      :public,
+      write_concurrency: true,
+      read_concurrency: true
+    ])
+
+    # to save all device app package
+    :ets.new(DappDemo.DevicePackages, [
+      :bag,
       :named_table,
       :public,
       write_concurrency: true,

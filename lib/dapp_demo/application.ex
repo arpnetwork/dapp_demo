@@ -9,6 +9,12 @@ defmodule DappDemo.Application do
   @http_port @jsonrpc_port + 1
 
   def start(_type, _args) do
+    data_dir = Application.get_env(:dapp_demo, :data_dir)
+
+    unless File.exists?(data_dir) do
+      File.mkdir_p(data_dir)
+    end
+
     DappDemo.Account.init()
     DappDemo.Nonce.init()
 
@@ -39,7 +45,7 @@ defmodule DappDemo.Application do
           port: @http_port
         ]
       ),
-      DappDemo.Auto
+      DappDemo.Admin
     ]
 
     # See https://hexdocs.pm/elixir/Supervisor.html

@@ -39,4 +39,5 @@ config :dapp_demo,
   price: nil,
   app_list: nil,
   ip: nil,
-  keystore_file: nil
+  keystore_file: nil,
+  max_device: nil

@@ -46,17 +46,13 @@ defmodule DappDemo.DevicePool do
   end
 
   def handle_call({:request, package}, _from, state) do
-    fun = [
-      {{:_, %{address: :"$2", package: :"$1", state: 0}}, [{:"=:=", {:const, package}, :"$1"}],
-       [:"$2"]}
-    ]
+    devices = :ets.lookup(DappDemo.DevicePackages, package)
+    dev = request_device(package, devices, nil)
 
-    with {[address], _} <- :ets.select(DappDemo.Device, fun, 1),
-         {:ok, dev} <- lookup(address) do
-      {:reply, Device.request(dev.pid, package), state}
+    unless is_nil(dev) do
+      {:reply, {:ok, dev}, state}
     else
-      _ ->
-        {:reply, {:error, :no_idle_device}, state}
+      {:reply, {:error, :no_idle_device}, state}
     end
   end
 
@@ -74,5 +70,29 @@ defmodule DappDemo.DevicePool do
 
   def handle_info(_msg, state) do
     {:noreply, state}
+  end
+
+  defp request_device(_, _, {:ok, dev}) do
+    dev
+  end
+
+  defp request_device(_, [], _) do
+    nil
+  end
+
+  defp request_device(package, devices, _) do
+    {_, address} = dev = Enum.random(devices)
+
+    res =
+      with {:ok, d} <- lookup(address),
+           0 <- d.state,
+           {:ok, d} <- Device.request(d.pid, package) do
+        {:ok, d}
+      else
+        _ ->
+          :error
+      end
+
+    request_device(package, List.delete(devices, dev), res)
   end
 end

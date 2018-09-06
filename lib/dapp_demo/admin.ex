@@ -5,12 +5,11 @@ defmodule DappDemo.Admin do
 
   require Logger
 
-  alias DappDemo.Account
-  alias DappDemo.Auto
-  alias DappDemo.Contract
-  alias DappDemo.Config
-  alias DappDemo.Crypto
-  alias DappDemo.ServerRegistry
+  alias DappDemo.{Account, App, Config, Contract, Crypto, DevicePool, ServerRegistry}
+
+  use GenServer
+
+  @check_interval 10000
 
   def start(auth) do
     bind_server = Config.get(:bind_server)
@@ -40,7 +39,7 @@ defmodule DappDemo.Admin do
         end)
       end
 
-      Auto.start()
+      Process.send_after(__MODULE__, :check_interval, @check_interval)
 
       :ok
     else
@@ -72,6 +71,64 @@ defmodule DappDemo.Admin do
     keystore = Crypto.encrypt_private_key(private_key, password)
     Config.set_keystore(keystore)
     Account.set_key(private_key)
+  end
+
+  def start_link(_opts) do
+    GenServer.start_link(__MODULE__, [], name: __MODULE__)
+  end
+
+  def init(_opts) do
+    {:ok, %{}}
+  end
+
+  def handle_info(:check_interval, state) do
+    apps =
+      with {:ok, data} <- File.read(Config.get(:app_list)),
+           {:ok, list} <- Poison.decode(data) do
+        list
+      else
+        _ ->
+          []
+      end
+
+    servers = ServerRegistry.lookup_all()
+    devices = DevicePool.lookup_all()
+
+    Enum.each(servers, fn {_, pid} ->
+      if length(devices) < Config.get(:max_device) do
+        DappDemo.Server.device_request(
+          pid,
+          Config.get(:price),
+          Config.get(:ip),
+          Config.get(:port)
+        )
+      end
+    end)
+
+    if length(apps) > 0 do
+      Enum.each(devices, fn {_, dev} ->
+        app =
+          Enum.find(apps, nil, fn app ->
+            !Enum.member?(dev.packages, app["package_name"]) &&
+              !Enum.member?(dev.installing_packages, app["package_name"]) &&
+              !Enum.member?(dev.failed_packages, app["package_name"])
+          end)
+
+        if app do
+          App.install(
+            dev.address,
+            app["package_name"],
+            app["url"],
+            app["size"],
+            app["md5"]
+          )
+        end
+      end)
+    end
+
+    Process.send_after(self(), :check_interval, @check_interval)
+
+    {:noreply, state}
   end
 
   defp check_eth_balance(address) do

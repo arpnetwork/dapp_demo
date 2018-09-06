@@ -1,13 +1,7 @@
 defmodule DappDemo.App do
   @moduledoc false
 
-  alias JSONRPC2.Client.HTTP
-  alias DappDemo.API.Jsonrpc2.Protocol
-  alias DappDemo.{Account, Config, Server, ServerRegistry, Device, DevicePool, Nonce, Utils}
-
-  @app_install_success 0
-  @app_download_failed 1
-  @app_install_failed 2
+  alias DappDemo.{Config, Device, DevicePool}
 
   def list() do
     file = Config.get(:app_list)
@@ -23,66 +17,23 @@ defmodule DappDemo.App do
     end
   end
 
-  def install(dev, package, url, filesize, md5) do
-    query(dev.address, dev.ip, dev.api_port, "app_install", [
-      package,
-      url,
-      filesize,
-      md5
-    ])
-  end
-
-  def install_notify(address, result, package) do
+  def install(address, package, url, filesize, md5) do
     {:ok, dev} = DevicePool.lookup(address)
-
-    DappDemo.Auto.install_finish(address)
-
-    case result do
-      @app_install_success ->
-        Device.install_success(dev.pid, package)
-
-      @app_download_failed ->
-        case ServerRegistry.lookup(dev.server_address) do
-          {:ok, pid} ->
-            Server.device_release(pid, address)
-        end
-
-      @app_install_failed ->
-        case ServerRegistry.lookup(dev.server_address) do
-          {:ok, pid} ->
-            Server.device_release(pid, address)
-        end
-    end
+    Device.install(dev.pid, package, url, filesize, md5)
   end
 
-  def uninstall(dev) do
-    Device.uninstall_success(dev.pid)
-    query(dev.address, dev.ip, dev.api_port, "app_uninstall", [dev.package])
+  def install_notify(address, package, result) do
+    {:ok, dev} = DevicePool.lookup(address)
+    Device.install_notify(dev.pid, package, result)
   end
 
-  def start(dev) do
-    query(dev.address, dev.ip, dev.api_port, "app_start", [dev.package])
+  def uninstall(address, package) do
+    {:ok, dev} = DevicePool.lookup(address)
+    Device.uninstall(dev.pid, package)
   end
 
-  defp query(dev_addr, ip, port, method, params) do
-    private_key = Account.private_key()
-    address = Account.address()
-
-    nonce = Nonce.get_and_update_nonce(address, dev_addr) |> Utils.encode_int()
-    url = "http://#{ip}:#{port}"
-
-    sign = Protocol.sign(method, params, nonce, dev_addr, private_key)
-
-    case HTTP.call(url, method, params ++ [nonce, sign]) do
-      {:ok, result} ->
-        if Protocol.verify_resp_sign(result, address, dev_addr) do
-          :ok
-        else
-          {:error, :verify_error}
-        end
-
-      {:error, err} ->
-        {:error, err}
-    end
+  def start(address, package) do
+    {:ok, dev} = DevicePool.lookup(address)
+    Device.start_app(dev.pid, package)
   end
 end
