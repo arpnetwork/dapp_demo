@@ -18,6 +18,8 @@ defmodule DappDemo.Device do
     :pid,
     :server_address,
     :address,
+    :width,
+    :height,
     :ip,
     :port,
     :price,

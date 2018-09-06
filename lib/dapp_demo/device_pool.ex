@@ -36,8 +36,8 @@ defmodule DappDemo.DevicePool do
     end
   end
 
-  def request(package) do
-    GenServer.call(__MODULE__, {:request, package})
+  def request(package, width, height) do
+    GenServer.call(__MODULE__, {:request, package, width, height})
   end
 
   def init(_opts) do
@@ -45,9 +45,33 @@ defmodule DappDemo.DevicePool do
     {:ok, %{}}
   end
 
-  def handle_call({:request, package}, _from, state) do
+  def handle_call({:request, package, width, height}, _from, state) do
     devices = :ets.lookup(DappDemo.DevicePackages, package)
-    dev = request_device(package, devices, nil)
+
+    devices =
+      Enum.flat_map(devices, fn {_, address} ->
+        case lookup(address) do
+          {:ok, dev} ->
+            [dev]
+
+          _ ->
+            []
+        end
+      end)
+
+    sorted =
+      Enum.sort(devices, fn x, y ->
+        x_abs = abs(x.height / x.width - height / width)
+        y_abs = abs(y.height / y.width - height / width)
+
+        if x_abs == y_abs do
+          abs(x.height - height) < abs(y.height - height)
+        else
+          x_abs < y_abs
+        end
+      end)
+
+    dev = request_device(sorted, package, nil)
 
     unless is_nil(dev) do
       {:reply, {:ok, dev}, state}
@@ -76,23 +100,22 @@ defmodule DappDemo.DevicePool do
     dev
   end
 
-  defp request_device(_, [], _) do
+  defp request_device([], _, _) do
     nil
   end
 
-  defp request_device(package, devices, _) do
-    {_, address} = dev = Enum.random(devices)
+  defp request_device(devices, package, _) do
+    [dev | rest] = devices
 
     res =
-      with {:ok, d} <- lookup(address),
-           0 <- d.state,
-           {:ok, d} <- Device.request(d.pid, package) do
+      with 0 <- dev.state,
+           {:ok, d} <- Device.request(dev.pid, package) do
         {:ok, d}
       else
         _ ->
           :error
       end
 
-    request_device(package, List.delete(devices, dev), res)
+    request_device(rest, package, res)
   end
 end

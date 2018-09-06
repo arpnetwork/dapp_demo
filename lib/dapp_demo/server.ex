@@ -53,6 +53,8 @@ defmodule DappDemo.Server do
             port: result["port"],
             price: price,
             api_port: result["port"] + 1,
+            width: result["width"] || 0,
+            height: result["height"] || 0,
             inserted_at: DateTime.utc_now() |> DateTime.to_unix()
           }
 
