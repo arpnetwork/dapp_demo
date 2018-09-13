@@ -162,7 +162,7 @@ defmodule DappDemo.Server do
   def handle_cast({:pay, dev_address, amount}, {server, devices, refs, tab}) do
     new_paid = server.paid + amount
     promise = Account.promise(server.cid, server.address, new_paid)
-    data = [Poison.encode!(promise), dev_address]
+    data = [Poison.encode!(promise), Utils.encode_int(amount), dev_address]
 
     pid = Map.get(devices, dev_address, nil)
     Device.add_paid(pid, amount)
