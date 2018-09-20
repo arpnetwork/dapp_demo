@@ -34,7 +34,8 @@ defmodule DappDemo.Application do
              DappDemo.API.Jsonrpc2.Nonce,
              DappDemo.API.Jsonrpc2.App,
              DappDemo.API.Jsonrpc2.Client,
-             DappDemo.API.Jsonrpc2.Account
+             DappDemo.API.Jsonrpc2.Account,
+             DappDemo.API.Jsonrpc2.Device
            ]},
         options: [port: @jsonrpc_port]
       ),
