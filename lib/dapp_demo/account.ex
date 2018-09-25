@@ -65,9 +65,8 @@ defmodule DappDemo.Account do
   def settle(start_time, price, paid, amount) do
     now = DateTime.utc_now() |> DateTime.to_unix()
     duration = now - start_time
-    price_per_sec = price * 3600
 
-    total_need_pay = price_per_sec * duration
+    total_need_pay = price * duration / 3600
     piece_need_pay = total_need_pay - paid
 
     if amount <= piece_need_pay do
