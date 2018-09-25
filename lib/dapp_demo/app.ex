@@ -18,22 +18,26 @@ defmodule DappDemo.App do
   end
 
   def install(address, package, url, filesize, md5) do
-    {:ok, dev} = DevicePool.lookup(address)
-    Device.install(dev.pid, package, url, filesize, md5)
+    with {:ok, dev} <- DevicePool.lookup(address) do
+      Device.install(dev.pid, package, url, filesize, md5)
+    end
   end
 
   def install_notify(address, package, result) do
-    {:ok, dev} = DevicePool.lookup(address)
-    Device.install_notify(dev.pid, package, result)
+    with {:ok, dev} <- DevicePool.lookup(address) do
+      Device.install_notify(dev.pid, package, result)
+    end
   end
 
   def uninstall(address, package) do
-    {:ok, dev} = DevicePool.lookup(address)
-    Device.uninstall(dev.pid, package)
+    with {:ok, dev} <- DevicePool.lookup(address) do
+      Device.uninstall(dev.pid, package)
+    end
   end
 
   def start(address, package) do
-    {:ok, dev} = DevicePool.lookup(address)
-    Device.start_app(dev.pid, package)
+    with {:ok, dev} <- DevicePool.lookup(address) do
+      Device.start_app(dev.pid, package)
+    end
   end
 end
