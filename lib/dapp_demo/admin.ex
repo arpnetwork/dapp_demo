@@ -5,7 +5,7 @@ defmodule DappDemo.Admin do
 
   require Logger
 
-  alias DappDemo.{Account, App, Config, Contract, Crypto, DevicePool, ServerRegistry}
+  alias DappDemo.{Account, App, Config, Contract, Crypto, Device, DevicePool, ServerRegistry}
 
   use GenServer
 
@@ -106,22 +106,35 @@ defmodule DappDemo.Admin do
     end)
 
     if length(apps) > 0 do
-      Enum.each(devices, fn {_, dev} ->
-        app =
-          Enum.find(apps, nil, fn app ->
-            !Enum.member?(dev.packages, app["package_name"]) &&
-              !Enum.member?(dev.installing_packages, app["package_name"]) &&
-              !Enum.member?(dev.failed_packages, app["package_name"])
-          end)
+      app_packages = Enum.map(apps, & &1["package_name"])
 
-        if app do
-          App.install(
-            dev.address,
-            app["package_name"],
-            app["url"],
-            app["size"],
-            app["md5"]
-          )
+      Enum.each(devices, fn {_, dev} ->
+        cond do
+          not Device.is_idle?(dev) ->
+            nil
+
+          app_packages
+          |> Enum.drop_while(&Enum.member?(dev.failed_packages, &1))
+          |> Enum.empty?() ->
+            # all app install failed, release device.
+            Device.release(dev.pid)
+
+          true ->
+            app =
+              Enum.find(apps, nil, fn app ->
+                !Enum.member?(dev.packages, app["package_name"]) &&
+                  !Enum.member?(dev.failed_packages, app["package_name"])
+              end)
+
+            if app do
+              App.install(
+                dev.address,
+                app["package_name"],
+                app["url"],
+                app["size"],
+                app["md5"]
+              )
+            end
         end
       end)
     end

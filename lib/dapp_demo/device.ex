@@ -42,6 +42,18 @@ defmodule DappDemo.Device do
   @app_download_failed 1
   @app_install_failed 2
 
+  def is_idle?(dev) do
+    dev.state == @idle
+  end
+
+  def is_installing?(dev) do
+    dev.state == @installing
+  end
+
+  def is_using?(dev) do
+    dev.state == @using
+  end
+
   def start_link(opts) do
     GenServer.start_link(__MODULE__, opts)
   end
