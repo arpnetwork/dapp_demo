@@ -5,7 +5,17 @@ defmodule DappDemo.Admin do
 
   require Logger
 
-  alias DappDemo.{Account, App, Config, Contract, Crypto, Device, DevicePool, ServerRegistry}
+  alias DappDemo.{
+    Account,
+    App,
+    Config,
+    Contract,
+    Crypto,
+    Device,
+    DevicePool,
+    Server,
+    ServerRegistry
+  }
 
   use GenServer
 
@@ -50,6 +60,12 @@ defmodule DappDemo.Admin do
 
   def add_server(address, amount \\ nil) do
     ServerRegistry.create(address, amount || Config.get(:amount))
+  end
+
+  def remove_server(address) do
+    with {:ok, pid} <- ServerRegistry.lookup(address) do
+      Server.unbind(pid)
+    end
   end
 
   def verify_password(password) do
@@ -145,22 +161,32 @@ defmodule DappDemo.Admin do
   end
 
   defp check_eth_balance(address) do
-    eth_balance = Contract.get_eth_balance(address)
+    min_balance = Contract.one_ether()
 
-    if eth_balance >= Contract.one_ether() do
-      :ok
-    else
-      {:error, "eth balance is not enough!"}
+    case Contract.get_eth_balance(address) do
+      {:ok, eth_balance} when eth_balance >= min_balance ->
+        :ok
+
+      {:ok, _} ->
+        {:error, "eth balance is not enough!"}
+
+      err ->
+        err
     end
   end
 
   defp check_arp_balance(address) do
-    arp_balance = Contract.get_arp_balance(address)
+    min_balance = Config.get(:amount)
 
-    if arp_balance >= 5000 * Contract.one_ether() do
-      :ok
-    else
-      {:error, "arp balance is not enough!"}
+    case Contract.get_arp_balance(address) do
+      {:ok, arp_balance} when arp_balance >= min_balance ->
+        :ok
+
+      {:ok, _} ->
+        {:error, "arp balance is not enough!"}
+
+      err ->
+        err
     end
   end
 

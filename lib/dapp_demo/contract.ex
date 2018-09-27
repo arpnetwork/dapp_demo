@@ -24,16 +24,17 @@ defmodule DappDemo.Contract do
   @doc """
   Get the eth balance by calling the rpc api of the block chain node.
   """
-  @spec get_eth_balance(String.t()) :: integer() | :error
+  @spec get_eth_balance(String.t()) :: {:ok, integer()} | {:error, any()}
   def get_eth_balance(address) do
-    {:ok, res} = Ethereumex.HttpClient.eth_get_balance(address)
-    hex_string_to_integer(res)
+    with {:ok, res} <- Ethereumex.HttpClient.eth_get_balance(address) do
+      {:ok, hex_string_to_integer(res)}
+    end
   end
 
   @doc """
   Get the arp balance by calling the constract api.
   """
-  @spec get_arp_balance(String.t()) :: integer() | :error
+  @spec get_arp_balance(String.t()) :: {:ok, integer()} | {:error, any()}
   def get_arp_balance(address) do
     address = address |> String.slice(2..-1) |> Base.decode16!(case: :mixed)
     abi_encoded_data = ABI.encode("balanceOf(address)", [address]) |> Base.encode16(case: :lower)
@@ -43,14 +44,15 @@ defmodule DappDemo.Contract do
       to: @token_contract
     }
 
-    {:ok, res} = Ethereumex.HttpClient.eth_call(params)
-    hex_string_to_integer(res)
+    with {:ok, res} <- Ethereumex.HttpClient.eth_call(params) do
+      {:ok, hex_string_to_integer(res)}
+    end
   end
 
   @doc """
   Get allowance.
   """
-  @spec token_allowance(String.t()) :: integer()
+  @spec token_allowance(String.t()) :: {:ok, integer()} | {:error, any()}
   def token_allowance(owner) do
     owner = owner |> String.slice(2..-1) |> Base.decode16!(case: :mixed)
     spender = @bank_contract |> String.slice(2..-1) |> Base.decode16!(case: :mixed)
@@ -63,8 +65,9 @@ defmodule DappDemo.Contract do
       to: @token_contract
     }
 
-    {:ok, res} = Ethereumex.HttpClient.eth_call(params)
-    hex_string_to_integer(res)
+    with {:ok, res} <- Ethereumex.HttpClient.eth_call(params) do
+      {:ok, hex_string_to_integer(res)}
+    end
   end
 
   @doc """
@@ -84,6 +87,8 @@ defmodule DappDemo.Contract do
     send_transaction(@token_contract, encoded_abi, private_key, gas_price, gas_limit)
   end
 
+  @spec deposit_to_bank(String.t(), integer(), integer(), integer()) ::
+          {:ok, map()} | {:error, term()}
   def deposit_to_bank(
         private_key,
         value,
@@ -95,6 +100,7 @@ defmodule DappDemo.Contract do
     send_transaction(@bank_contract, encoded_abi, private_key, gas_price, gas_limit)
   end
 
+  @spec get_bank_balance(String.t()) :: {:ok, integer()} | {:error, any()}
   def get_bank_balance(owner) do
     owner = owner |> String.slice(2..-1) |> Base.decode16!(case: :mixed)
     abi_encoded_data = ABI.encode("balanceOf(address)", [owner]) |> Base.encode16(case: :lower)
@@ -104,8 +110,9 @@ defmodule DappDemo.Contract do
       to: @bank_contract
     }
 
-    {:ok, res} = Ethereumex.HttpClient.eth_call(params)
-    hex_string_to_integer(res)
+    with {:ok, res} <- Ethereumex.HttpClient.eth_call(params) do
+      {:ok, hex_string_to_integer(res)}
+    end
   end
 
   def bank_approve(
@@ -142,6 +149,7 @@ defmodule DappDemo.Contract do
     send_transaction(@bank_contract, encoded_abi, private_key, gas_price, gas_limit)
   end
 
+  @spec bank_allowance(String.t(), String.t()) :: {:ok, map()} | {:error, any()}
   def bank_allowance(owner, server_addr) do
     owner = owner |> String.slice(2..-1) |> Base.decode16!(case: :mixed)
     server_addr = server_addr |> String.slice(2..-1) |> Base.decode16!(case: :mixed)
@@ -155,19 +163,21 @@ defmodule DappDemo.Contract do
       to: @bank_contract
     }
 
-    {:ok, res} = Ethereumex.HttpClient.eth_call(params)
-    res = res |> String.slice(2..-1) |> Base.decode16!(case: :mixed)
+    with {:ok, res} <- Ethereumex.HttpClient.eth_call(params) do
+      res = res |> String.slice(2..-1) |> Base.decode16!(case: :mixed)
 
-    <<cid::size(256), amount::size(256), paid::size(256), expired::size(256),
-      proxy::binary-size(32)>> = res
+      <<cid::size(256), amount::size(256), paid::size(256), expired::size(256),
+        proxy::binary-size(32)>> = res
 
-    %{
-      cid: cid,
-      amount: amount,
-      paid: paid,
-      expired: expired,
-      proxy: decode_abi_address(proxy)
-    }
+      {:ok,
+       %{
+         cid: cid,
+         amount: amount,
+         paid: paid,
+         expired: expired,
+         proxy: decode_abi_address(proxy)
+       }}
+    end
   end
 
   def bank_cash(
@@ -193,6 +203,7 @@ defmodule DappDemo.Contract do
     send_transaction(@bank_contract, encoded_abi, private_key, gas_price, gas_limit)
   end
 
+  @spec get_server_count() :: {:ok, integer()} | {:error, any()}
   def get_server_count() do
     encoded_abi = ABI.encode("serverCount()", []) |> Base.encode16(case: :lower)
 
@@ -201,12 +212,13 @@ defmodule DappDemo.Contract do
       to: @registry_contract
     }
 
-    {:ok, res} = Ethereumex.HttpClient.eth_call(params)
-    res = res |> String.slice(2..-1) |> Base.decode16!(case: :mixed)
-    <<count::size(256)>> = res
-    count
+    with {:ok, res} <- Ethereumex.HttpClient.eth_call(params) do
+      <<count::size(256)>> = res |> String.slice(2..-1) |> Base.decode16!(case: :mixed)
+      {:ok, count}
+    end
   end
 
+  @spec get_server_by_index(integer()) :: {:ok, integer()} | {:error, any()}
   def get_server_by_index(index) do
     encoded_abi = ABI.encode("serverByIndex(uint256)", [index]) |> Base.encode16(case: :lower)
 
@@ -215,21 +227,24 @@ defmodule DappDemo.Contract do
       to: @registry_contract
     }
 
-    {:ok, res} = Ethereumex.HttpClient.eth_call(params)
-    res = res |> String.slice(2..-1) |> Base.decode16!(case: :mixed)
+    with {:ok, res} <- Ethereumex.HttpClient.eth_call(params) do
+      res = res |> String.slice(2..-1) |> Base.decode16!(case: :mixed)
 
-    <<addr::binary-size(32), ip::size(256), port::size(256), size::size(256), expired::size(256)>> =
-      res
+      <<addr::binary-size(32), ip::size(256), port::size(256), size::size(256),
+        expired::size(256)>> = res
 
-    %{
-      addr: decode_abi_address(addr),
-      ip: integer_to_ip(ip),
-      port: port,
-      size: size,
-      expired: expired
-    }
+      {:ok,
+       %{
+         addr: decode_abi_address(addr),
+         ip: integer_to_ip(ip),
+         port: port,
+         size: size,
+         expired: expired
+       }}
+    end
   end
 
+  @spec get_server_by_index(String.t()) :: {:ok, map()} | {:error, any()}
   def get_server_by_addr(server_addr) do
     server_addr = server_addr |> String.slice(2..-1) |> Base.decode16!(case: :mixed)
 
@@ -240,17 +255,19 @@ defmodule DappDemo.Contract do
       to: @registry_contract
     }
 
-    {:ok, res} = Ethereumex.HttpClient.eth_call(params)
-    res = res |> String.slice(2..-1) |> Base.decode16!(case: :mixed)
+    with {:ok, res} <- Ethereumex.HttpClient.eth_call(params) do
+      res = res |> String.slice(2..-1) |> Base.decode16!(case: :mixed)
 
-    <<ip::size(256), port::size(256), size::size(256), expired::size(256)>> = res
+      <<ip::size(256), port::size(256), size::size(256), expired::size(256)>> = res
 
-    %{
-      ip: integer_to_ip(ip),
-      port: port,
-      size: size,
-      expired: expired
-    }
+      {:ok,
+       %{
+         ip: integer_to_ip(ip),
+         port: port,
+         size: size,
+         expired: expired
+       }}
+    end
   end
 
   def bind_server(
@@ -277,6 +294,7 @@ defmodule DappDemo.Contract do
     send_transaction(@registry_contract, encoded_abi, private_key, gas_price, gas_limit)
   end
 
+  @spec get_bind_server_expired(String.t(), String.t()) :: {:ok, map()} | {:error, any()}
   def get_bind_server_expired(dapp_addr, server_addr) do
     dapp_addr = dapp_addr |> String.slice(2..-1) |> Base.decode16!(case: :mixed)
     server_addr = server_addr |> String.slice(2..-1) |> Base.decode16!(case: :mixed)
@@ -292,15 +310,17 @@ defmodule DappDemo.Contract do
       to: @registry_contract
     }
 
-    {:ok, res} = Ethereumex.HttpClient.eth_call(params)
-    res = res |> String.slice(2..-1) |> Base.decode16!(case: :mixed)
+    with {:ok, res} <- Ethereumex.HttpClient.eth_call(params) do
+      res = res |> String.slice(2..-1) |> Base.decode16!(case: :mixed)
 
-    <<server_addr::binary-size(32), expired::size(256)>> = res
+      <<server_addr::binary-size(32), expired::size(256)>> = res
 
-    %{
-      server_addr: decode_abi_address(server_addr),
-      expired: expired
-    }
+      {:ok,
+       %{
+         server_addr: decode_abi_address(server_addr),
+         expired: expired
+       }}
+    end
   end
 
   @doc """

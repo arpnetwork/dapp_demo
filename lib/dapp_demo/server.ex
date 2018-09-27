@@ -193,43 +193,44 @@ defmodule DappDemo.Server do
   def handle_info(:check_interval, {server, devices, refs, tab}) do
     # check server register expired
     now = DateTime.utc_now() |> DateTime.to_unix()
-    %{expired: register_expired} = Contract.get_server_by_addr(server.address)
-
-    %{expired: binding_expired} =
-      Contract.get_bind_server_expired(Account.address(), server.address)
-
-    allowance = Contract.bank_allowance(Account.address(), server.address)
-
-    increase_approval_task = Map.get(server, :increase_approval_task, nil)
 
     server =
-      cond do
-        server.state == @state_ok && register_expired > 0 && now < register_expired ->
-          # server unregisted.
-          # first unbind.
-          Logger.info("server unregisted, first unbind server #{server.address}")
-          unbind(self(), server, devices)
-          struct(server, state: @state_first_unbind_start)
+      with {:ok, %{expired: register_expired}} <- Contract.get_server_by_addr(server.address),
+           {:ok, allowance} <- Contract.bank_allowance(Account.address(), server.address),
+           {:ok, %{expired: binding_expired}} <-
+             Contract.get_bind_server_expired(Account.address(), server.address) do
+        increase_approval_task = Map.get(server, :increase_approval_task, nil)
 
-        server.state == @state_first_unbind_end && now > binding_expired ->
-          # binding expired.
-          # first unbind is done or server unbind.
-          # second unbind.
-          Logger.info("second unbind server #{server.address}")
-          unbind(self(), server, devices)
-          struct(server, state: @state_second_unbind_start)
+        cond do
+          server.state == @state_ok && register_expired > 0 && now < register_expired ->
+            # server unregisted.
+            # first unbind.
+            Logger.info("server unregisted, first unbind server #{server.address}")
+            unbind(self(), server, devices)
+            struct(server, state: @state_first_unbind_start)
 
-        server.state == @state_ok &&
-          allowance.paid / allowance.amount >= @allowance_threshold_value &&
-            is_nil(increase_approval_task) ->
-          # balance of allowance is too low.
-          increase_amount = Config.get(:amount)
-          Logger.info("increase approval #{server.address} #{increase_amount}")
-          increase_approval(server.address, increase_amount)
-          struct(server, increase_approval_task: true)
+          server.state == @state_first_unbind_end && now > binding_expired ->
+            # binding expired.
+            # first unbind is done or server unbind.
+            # second unbind.
+            Logger.info("second unbind server #{server.address}")
+            unbind(self(), server, devices)
+            struct(server, state: @state_second_unbind_start)
 
-        true ->
-          server
+          server.state == @state_ok &&
+            allowance.paid / allowance.amount >= @allowance_threshold_value &&
+              is_nil(increase_approval_task) ->
+            # balance of allowance is too low.
+            increase_amount = Config.get(:amount)
+            Logger.info("increase approval #{server.address} #{increase_amount}")
+            increase_approval(server.address, increase_amount)
+            struct(server, increase_approval_task: true)
+
+          true ->
+            server
+        end
+      else
+        _ -> server
       end
 
     Process.send_after(self(), :check_interval, @check_interval)
@@ -341,12 +342,8 @@ defmodule DappDemo.Server do
       private_key = Account.private_key()
       self_address = Account.address()
 
-      %{ip: ip, port: port} = Contract.get_server_by_addr(address)
-      server_api_port = port + 1
-
       state =
-        with true <- ip != "0.0.0.0",
-             :ok <- check_and_bind_server(private_key, self_address, address),
+        with :ok <- check_and_bind_server(private_key, self_address, address),
              :ok <- check_and_deposit_to_bank(private_key, self_address, address, amount),
              :ok <- check_and_approve_to_bank(private_key, self_address, address, amount) do
           @state_ok
@@ -359,8 +356,10 @@ defmodule DappDemo.Server do
             nil
         end
 
-      if state do
-        %{cid: cid} = Contract.bank_allowance(self_address, address)
+      with false <- is_nil(state),
+           {:ok, %{ip: ip, port: port}} <- Contract.get_server_by_addr(address),
+           {:ok, %{cid: cid}} <- Contract.bank_allowance(self_address, address) do
+        server_api_port = port + 1
 
         last_promise =
           get_last_promise(private_key, self_address, ip, server_api_port, address, cid)
@@ -394,7 +393,8 @@ defmodule DappDemo.Server do
 
         {:bind_result, :success, data}
       else
-        {:bind_result, :fail, nil}
+        _ ->
+          {:bind_result, :fail, nil}
       end
     end)
   end
@@ -419,21 +419,19 @@ defmodule DappDemo.Server do
     Task.async(fn ->
       dapp_address = Account.address()
       private_key = Account.private_key()
-      balance = Contract.get_bank_balance(dapp_address)
 
       res =
-        if balance < amount do
-          with {:ok, %{"status" => "0x1"}} <-
-                 Contract.token_approve(private_key, amount - balance),
-               {:ok, %{"status" => "0x1"}} <-
-                 Contract.deposit_to_bank(private_key, amount - balance) do
-            :ok
-          else
-            _ ->
-              :fail
-          end
-        else
+        with {:ok, balance} when balance < amount <- Contract.get_bank_balance(dapp_address),
+             {:ok, %{"status" => "0x1"}} <- Contract.token_approve(private_key, amount - balance),
+             {:ok, %{"status" => "0x1"}} <-
+               Contract.deposit_to_bank(private_key, amount - balance) do
           :ok
+        else
+          {:ok, balance} when balance >= amount ->
+            :ok
+
+          _ ->
+            :error
         end
 
       with :ok <- res,
@@ -448,79 +446,80 @@ defmodule DappDemo.Server do
   end
 
   defp check_and_bind_server(private_key, dapp_addr, server_addr) do
-    %{server_addr: addr, expired: expired} =
-      Contract.get_bind_server_expired(dapp_addr, server_addr)
+    with {:ok, %{server_addr: addr, expired: expired}} <-
+           Contract.get_bind_server_expired(dapp_addr, server_addr) do
+      now = DateTime.utc_now() |> DateTime.to_unix()
 
-    now = DateTime.utc_now() |> DateTime.to_unix()
+      cond do
+        addr != server_addr ->
+          # new bind
+          Logger.info("binding server #{server_addr}")
 
-    cond do
-      addr != server_addr ->
-        # new bind
-        Logger.info("binding server #{server_addr}")
+          case Contract.bind_server(private_key, server_addr) do
+            {:ok, %{"status" => "0x1"}} ->
+              :ok
 
-        case Contract.bind_server(private_key, server_addr) do
-          {:ok, %{"status" => "0x1"}} ->
-            :ok
+            _ ->
+              {:error, "bind server failed"}
+          end
 
-          _ ->
-            {:error, "bind server failed"}
-        end
+        expired != 0 && expired <= now ->
+          # unbind
+          Logger.info("expired. unbinding server #{server_addr}")
 
-      expired != 0 && expired <= now ->
-        # unbind
-        Logger.info("expired. unbinding server #{server_addr}")
+          case Contract.unbind_server(private_key, server_addr) do
+            {:ok, %{"status" => "0x1"}} ->
+              {:error, "unbind success #{server_addr}"}
 
-        case Contract.unbind_server(private_key, server_addr) do
-          {:ok, %{"status" => "0x1"}} ->
-            {:error, "unbind success #{server_addr}"}
+            _ ->
+              {:ok, @state_second_unbind_start}
+          end
 
-          _ ->
-            {:ok, @state_second_unbind_start}
-        end
+        expired != 0 && expired > now ->
+          # need unbind
+          Logger.info("expired. need unbind server #{server_addr}")
+          {:ok, @state_first_unbind_end}
 
-      expired != 0 && expired > now ->
-        # need unbind
-        Logger.info("expired. need unbind server #{server_addr}")
-        {:ok, @state_first_unbind_end}
-
-      true ->
-        :ok
+        true ->
+          :ok
+      end
     end
   end
 
   defp check_and_deposit_to_bank(private_key, address, server_addr, amount) do
-    balance = Contract.get_bank_balance(address)
-    allowance = Contract.bank_allowance(address, server_addr)
+    with {:ok, balance} <- Contract.get_bank_balance(address),
+         {:ok, allowance} <- Contract.bank_allowance(address, server_addr) do
+      if allowance.cid == 0 && balance < amount do
+        Logger.info("depositing...")
 
-    if allowance.cid == 0 && balance < amount do
-      Logger.info("depositing...")
-
-      with {:ok, %{"status" => "0x1"}} <- Contract.token_approve(private_key, amount),
-           {:ok, %{"status" => "0x1"}} <- Contract.deposit_to_bank(private_key, amount) do
-        :ok
+        with {:ok, %{"status" => "0x1"}} <- Contract.token_approve(private_key, amount),
+             {:ok, %{"status" => "0x1"}} <- Contract.deposit_to_bank(private_key, amount) do
+          :ok
+        else
+          _ ->
+            {:error, "deposit failed"}
+        end
       else
-        _ ->
-          {:error, "deposit failed"}
+        :ok
       end
-    else
-      :ok
     end
   end
 
   defp check_and_approve_to_bank(private_key, address, server_addr, amount) do
-    allowance = Contract.bank_allowance(address, server_addr)
+    with {:ok, allowance} <- Contract.bank_allowance(address, server_addr) do
+      if allowance.cid == 0 do
+        Logger.info("bank approve...")
 
-    if allowance.cid == 0 do
-      Logger.info("bank approve...")
+        case Contract.bank_approve(private_key, server_addr, amount) do
+          {:ok, %{"status" => "0x1"}} ->
+            :ok
 
-      with {:ok, %{"status" => "0x1"}} <- Contract.bank_approve(private_key, server_addr, amount) do
-        :ok
+          _ ->
+            {:error, "bank approve failed"}
+        end
       else
-        _ ->
-          {:error, "bank approve failed"}
+        :ok
       end
-    else
-      :ok
     end
   end
 
