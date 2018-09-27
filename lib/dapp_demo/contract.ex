@@ -244,7 +244,7 @@ defmodule DappDemo.Contract do
     end
   end
 
-  @spec get_server_by_index(String.t()) :: {:ok, map()} | {:error, any()}
+  @spec get_server_by_addr(String.t()) :: {:ok, map()} | {:error, any()}
   def get_server_by_addr(server_addr) do
     server_addr = server_addr |> String.slice(2..-1) |> Base.decode16!(case: :mixed)
 
@@ -355,24 +355,27 @@ defmodule DappDemo.Contract do
       topics: [[bind_topic, unbind_topic], encoded_address]
     }
 
-    {:ok, id} = Ethereumex.HttpClient.eth_new_filter(params)
-    {:ok, logs} = Ethereumex.HttpClient.eth_get_filter_logs(id)
-    Ethereumex.HttpClient.eth_uninstall_filter(id)
+    with {:ok, id} <- Ethereumex.HttpClient.eth_new_filter(params),
+         {:ok, logs} <- Ethereumex.HttpClient.eth_get_filter_logs(id),
+         {:ok, _} <- Ethereumex.HttpClient.eth_uninstall_filter(id) do
+      out =
+        Enum.reduce(logs, [], fn item, acc ->
+          if item["removed"] == false do
+            [topic, _, server] = item["topics"]
+            server = String.replace_prefix(server, "0x000000000000000000000000", "0x")
 
-    Enum.reduce(logs, [], fn item, acc ->
-      if item["removed"] == false do
-        [topic, _, server] = item["topics"]
-        server = String.replace_prefix(server, "0x000000000000000000000000", "0x")
+            if topic == bind_topic do
+              [server | acc]
+            else
+              List.delete(acc, server)
+            end
+          else
+            acc
+          end
+        end)
 
-        if topic == bind_topic do
-          [server | acc]
-        else
-          List.delete(acc, server)
-        end
-      else
-        acc
-      end
-    end)
+      {:ok, out}
+    end
   end
 
   @doc """
@@ -385,44 +388,47 @@ defmodule DappDemo.Contract do
     private_key = Base.decode16!(private_key, case: :mixed)
     contract = contract |> String.slice(2..-1) |> Base.decode16!(case: :mixed)
 
-    bt = %Blockchain.Transaction{
-      nonce: get_transaction_count(from),
-      gas_price: gas_price,
-      gas_limit: gas_limit,
-      to: contract,
-      value: 0,
-      v: 0,
-      r: 0,
-      s: 0,
-      init: <<>>,
-      data: encoded_abi
-    }
+    with {:ok, nonce} <- get_transaction_count(from) do
+      bt = %Blockchain.Transaction{
+        nonce: nonce,
+        gas_price: gas_price,
+        gas_limit: gas_limit,
+        to: contract,
+        value: 0,
+        v: 0,
+        r: 0,
+        s: 0,
+        init: <<>>,
+        data: encoded_abi
+      }
 
-    transaction_data =
-      bt
-      |> Blockchain.Transaction.Signature.sign_transaction(private_key, @chain_id)
-      |> Blockchain.Transaction.serialize()
-      |> ExRLP.encode()
-      |> Base.encode16(case: :lower)
+      transaction_data =
+        bt
+        |> Blockchain.Transaction.Signature.sign_transaction(private_key, @chain_id)
+        |> Blockchain.Transaction.serialize()
+        |> ExRLP.encode()
+        |> Base.encode16(case: :lower)
 
-    res = Ethereumex.HttpClient.eth_send_raw_transaction("0x" <> transaction_data)
+      res = Ethereumex.HttpClient.eth_send_raw_transaction("0x" <> transaction_data)
 
-    case res do
-      {:ok, tx_hash} ->
-        get_transaction_receipt(tx_hash, @receipt_attempts)
+      case res do
+        {:ok, tx_hash} ->
+          get_transaction_receipt(tx_hash, @receipt_attempts)
 
-      _ ->
-        res
+        _ ->
+          res
+      end
     end
   end
 
   @doc """
   Get pending transaction count.
   """
-  @spec get_transaction_count(String.t()) :: integer()
+  @spec get_transaction_count(String.t()) :: {:ok, integer()} | {:error, any()}
   def get_transaction_count(address) do
-    {:ok, res} = Ethereumex.HttpClient.eth_get_transaction_count(address, "pending")
-    hex_string_to_integer(res)
+    with {:ok, res} <- Ethereumex.HttpClient.eth_get_transaction_count(address, "pending") do
+      {:ok, hex_string_to_integer(res)}
+    end
   end
 
   @doc """

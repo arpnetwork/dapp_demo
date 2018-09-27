@@ -42,11 +42,11 @@ defmodule DappDemo.Admin do
           ServerRegistry.create(address, amount)
         end)
       else
-        servers = Contract.get_bound_servers(Account.address())
-
-        Enum.each(servers, fn address ->
-          ServerRegistry.create(address, amount)
-        end)
+        with {:ok, servers} <- Contract.get_bound_servers(Account.address()) do
+          Enum.each(servers, fn address ->
+            ServerRegistry.create(address, amount)
+          end)
+        end
       end
 
       Process.send_after(__MODULE__, :check_interval, @check_interval)
