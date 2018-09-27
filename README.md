@@ -16,7 +16,7 @@ Edit `config/config.exs` like:
     app_list: "public/data/app_list.json",
     ip: "192.168.0.164",
     keystore_file: "/path/to/keystore/file",
-    max_device: 100
+    min_idle_device: 20
 ```
 
 ## Run

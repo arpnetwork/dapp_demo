@@ -107,19 +107,9 @@ defmodule DappDemo.Admin do
           []
       end
 
-    servers = ServerRegistry.lookup_all()
     devices = DevicePool.lookup_all()
 
-    Enum.each(servers, fn {_, pid} ->
-      if length(devices) < Config.get(:max_device) do
-        DappDemo.Server.device_request(
-          pid,
-          Config.get(:price),
-          Config.get(:ip),
-          Config.get(:port)
-        )
-      end
-    end)
+    request_device(devices)
 
     if length(apps) > 0 do
       app_packages = Enum.map(apps, & &1["package_name"])
@@ -187,6 +177,38 @@ defmodule DappDemo.Admin do
 
       err ->
         err
+    end
+  end
+
+  defp request_device(devices) do
+    idle_device_count = Enum.count(devices, fn {_, dev} -> Device.is_idle?(dev) end)
+
+    ok_servers =
+      Enum.filter(ServerRegistry.lookup_all(), fn {_, pid} ->
+        s = Server.get(pid)
+
+        if s do
+          Server.is_ok?(s)
+        end
+      end)
+
+    ok_server_count = length(ok_servers)
+
+    min_idle_device = Config.get(:min_idle_device)
+
+    if ok_server_count > 0 && idle_device_count < min_idle_device do
+      c = div(min_idle_device - idle_device_count, ok_server_count)
+
+      Enum.each(ok_servers, fn {_, pid} ->
+        Enum.each(0..c, fn _ ->
+          DappDemo.Server.device_request(
+            pid,
+            Config.get(:price),
+            Config.get(:ip),
+            Config.get(:port)
+          )
+        end)
+      end)
     end
   end
 

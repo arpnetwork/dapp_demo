@@ -32,6 +32,10 @@ defmodule DappDemo.Server do
     state: @state_init
   ]
 
+  def is_ok?(server) do
+    server.state == @state_ok
+  end
+
   def start_link(opts) do
     GenServer.start_link(__MODULE__, opts)
   end
