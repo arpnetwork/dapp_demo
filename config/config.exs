@@ -40,4 +40,4 @@ config :dapp_demo,
   app_list: nil,
   ip: nil,
   keystore_file: nil,
-  max_device: nil
+  min_idle_device: nil
