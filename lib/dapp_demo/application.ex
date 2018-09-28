@@ -16,7 +16,6 @@ defmodule DappDemo.Application do
     end
 
     DappDemo.Account.init()
-    DappDemo.Nonce.init()
 
     # List all child processes to be supervised
     children = [
@@ -24,6 +23,7 @@ defmodule DappDemo.Application do
       # {DappDemo.Worker, arg},
       {DynamicSupervisor, name: DappDemo.DSupervisor, strategy: :one_for_one},
       DappDemo.Config,
+      DappDemo.Nonce,
       DappDemo.ServerRegistry,
       DappDemo.DevicePool,
       Plug.Adapters.Cowboy2.child_spec(
