@@ -59,11 +59,11 @@ defmodule DappDemo.Admin do
   end
 
   def add_server(address, amount \\ nil) do
-    ServerRegistry.create(address, amount || Config.get(:amount))
+    ServerRegistry.create(address |> String.downcase(), amount || Config.get(:amount))
   end
 
   def remove_server(address) do
-    with {:ok, pid} <- ServerRegistry.lookup(address) do
+    with {:ok, pid} <- ServerRegistry.lookup(address |> String.downcase()) do
       Server.unbind(pid)
     end
   end

@@ -242,15 +242,23 @@ defmodule DappDemo.Server do
   end
 
   def handle_info({_ref, {:bind_result, result, data}}, {server, devices, refs, tab}) do
-    Logger.info("bound server #{server.address} #{result}")
+    case result do
+      :success ->
+        Logger.info("bound server #{server.address} #{result}")
 
-    if :success == result do
-      Config.add_server(data.address, data.amount)
-      write_file(data.address, data)
-      {:noreply, {data, devices, refs, tab}}
-    else
-      Config.remove_server(server.address)
-      {:stop, :normal, {server, devices, refs, tab}}
+        Config.add_server(data.address, data.amount)
+        write_file(data.address, data)
+        {:noreply, {data, devices, refs, tab}}
+
+      :fail ->
+        Logger.info("bound server #{server.address} #{result}")
+        Config.remove_server(server.address)
+        {:stop, :normal, {server, devices, refs, tab}}
+
+      :unbind_success ->
+        Logger.info("unbound server #{server.address} #{result}")
+        Config.remove_server(server.address)
+        {:stop, :normal, {server, devices, refs, tab}}
     end
   end
 
@@ -346,21 +354,9 @@ defmodule DappDemo.Server do
       private_key = Account.private_key()
       self_address = Account.address()
 
-      state =
-        with :ok <- check_and_bind_server(private_key, self_address, address),
-             :ok <- check_and_deposit_to_bank(private_key, self_address, address, amount),
-             :ok <- check_and_approve_to_bank(private_key, self_address, address, amount) do
-          @state_ok
-        else
-          {:ok, state} ->
-            state
-
-          err ->
-            Logger.error(inspect(err))
-            nil
-        end
-
-      with false <- is_nil(state),
+      with {:ok, state} <- check_and_bind_server(private_key, self_address, address),
+           :ok <- check_and_deposit_to_bank(private_key, self_address, address, amount),
+           :ok <- check_and_approve_to_bank(private_key, self_address, address, amount),
            {:ok, %{ip: ip, port: port}} <- Contract.get_server_by_addr(address),
            {:ok, %{cid: cid}} <- Contract.bank_allowance(self_address, address) do
         server_api_port = port + 1
@@ -397,7 +393,11 @@ defmodule DappDemo.Server do
 
         {:bind_result, :success, data}
       else
-        _ ->
+        :unbind_success ->
+          {:bind_result, :unbind_success, nil}
+
+        err ->
+          Logger.warn(inspect(err))
           {:bind_result, :fail, nil}
       end
     end)
@@ -461,7 +461,7 @@ defmodule DappDemo.Server do
 
           case Contract.bind_server(private_key, server_addr) do
             {:ok, %{"status" => "0x1"}} ->
-              :ok
+              {:ok, @state_ok}
 
             _ ->
               {:error, "bind server failed"}
@@ -473,7 +473,7 @@ defmodule DappDemo.Server do
 
           case Contract.unbind_server(private_key, server_addr) do
             {:ok, %{"status" => "0x1"}} ->
-              {:error, "unbind success #{server_addr}"}
+              :unbind_success
 
             _ ->
               {:ok, @state_second_unbind_start}
@@ -485,7 +485,7 @@ defmodule DappDemo.Server do
           {:ok, @state_first_unbind_end}
 
         true ->
-          :ok
+          {:ok, @state_ok}
       end
     end
   end
