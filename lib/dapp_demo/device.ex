@@ -100,7 +100,7 @@ defmodule DappDemo.Device do
 
   def idle(pid, session) do
     if Process.alive?(pid) do
-      GenServer.call(pid, {:idle, session})
+      Process.send_after(pid, {:idle, session}, 5000, [])
     else
       {:error, :invalid_pid}
     end
@@ -264,21 +264,6 @@ defmodule DappDemo.Device do
     end
   end
 
-  def handle_call({:idle, session}, _from, %{address: address} = state) do
-    with [{^address, device}] <- :ets.lookup(__MODULE__, address),
-         ^session <- device.session do
-      if device.state != @idle do
-        device = struct(device, session: nil, state: @idle)
-        :ets.insert(__MODULE__, {address, device})
-      end
-
-      {:reply, :ok, state}
-    else
-      _ ->
-        {:reply, {:error, :invalid_params}, state}
-    end
-  end
-
   def handle_call({:request, package}, _from, %{address: address} = state) do
     with [{^address, device}] <- :ets.lookup(__MODULE__, address),
          @idle <- device.state,
@@ -375,6 +360,21 @@ defmodule DappDemo.Device do
 
       _ ->
         {:stop, :normal, state}
+    end
+  end
+
+  def handle_info({:idle, session}, %{address: address} = state) do
+    with [{^address, device}] <- :ets.lookup(__MODULE__, address),
+         ^session <- device.session do
+      if device.state != @idle do
+        device = struct(device, session: nil, state: @idle)
+        :ets.insert(__MODULE__, {address, device})
+      end
+
+      {:noreply, state}
+    else
+      _ ->
+        {:noreply, state}
     end
   end
 
