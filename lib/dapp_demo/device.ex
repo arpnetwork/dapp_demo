@@ -101,6 +101,7 @@ defmodule DappDemo.Device do
   def idle(pid, session) do
     if Process.alive?(pid) do
       Process.send_after(pid, {:idle, session}, 5000, [])
+      :ok
     else
       {:error, :invalid_pid}
     end
