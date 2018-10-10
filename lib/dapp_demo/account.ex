@@ -66,7 +66,7 @@ defmodule DappDemo.Account do
     now = DateTime.utc_now() |> DateTime.to_unix()
     duration = now - start_time
 
-    total_need_pay = price * duration / 3600
+    total_need_pay = div(price * duration, 3600)
     piece_need_pay = total_need_pay - paid
 
     if amount <= piece_need_pay do
