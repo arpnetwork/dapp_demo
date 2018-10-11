@@ -90,11 +90,16 @@ defmodule DappDemo.Device do
     end
   end
 
-  def start_app(pid, package) do
-    if Process.alive?(pid) do
-      GenServer.call(pid, {:start_app, package})
+  def start_app(address, package) do
+    with [{^address, device}] <- :ets.lookup(__MODULE__, address),
+         false <- device.ping_failed,
+         true <- Enum.member?(device.packages, package),
+         @using <- device.state,
+         :ok <- send_request(address, device.ip, device.api_port, "app_start", [package]) do
+      :ok
     else
-      {:error, :invalid_pid}
+      _ ->
+        {:error, :start_app_failed}
     end
   end
 
@@ -231,31 +236,6 @@ defmodule DappDemo.Device do
           packages = List.delete(device.packages, package)
           device = struct(device, packages: packages)
           :ets.insert(__MODULE__, {address, device})
-
-          {:reply, :ok, state}
-      end
-    else
-      _ ->
-        {:reply, {:error, :invalid_params}, state}
-    end
-  end
-
-  def handle_call({:start_app, package}, _from, %{address: address} = state) do
-    with [{^address, device}] <- :ets.lookup(__MODULE__, address) do
-      cond do
-        device.ping_failed ->
-          {:reply, {:error, :device_ping_failed}, state}
-
-        !Enum.member?(device.packages, package) ->
-          {:reply, {:error, :invalid_package}, state}
-
-        device.state != @using ->
-          {:reply, {:error, :invalid_state}, state}
-
-        true ->
-          Task.async(fn ->
-            send_request(address, device.ip, device.api_port, "app_start", [package])
-          end)
 
           {:reply, :ok, state}
       end

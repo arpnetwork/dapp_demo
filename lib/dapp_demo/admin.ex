@@ -129,7 +129,10 @@ defmodule DappDemo.Admin do
             app =
               Enum.find(apps, nil, fn app ->
                 !Enum.member?(dev.packages, app["package_name"]) &&
-                  !Enum.member?(dev.failed_packages, app["package_name"])
+                  !Enum.member?(dev.failed_packages, app["package_name"]) &&
+                  !Enum.find(dev.installing_packages, nil, fn {pkg, _} ->
+                    pkg == app["package_name"]
+                  end)
               end)
 
             if app do

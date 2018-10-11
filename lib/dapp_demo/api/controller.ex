@@ -20,9 +20,8 @@ defmodule DappDemo.API.Controller do
   end
 
   def device_request(conn, params) do
-    with {:ok, dev} <- DevicePool.request(params["package"], params["width"], params["height"]) do
-      App.start(dev.address, params["package"])
-
+    with {:ok, dev} <- DevicePool.request(params["package"], params["width"], params["height"]),
+         :ok <- Device.start_app(dev.address, params["package"]) do
       resp_data = %{
         code: 0,
         data: %{

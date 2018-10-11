@@ -6,7 +6,8 @@ defmodule DappDemo.API.Error do
   codes = %{
     100 => "Other Error",
     101 => "Invalid Param",
-    201 => "No Idle Device"
+    201 => "No Idle Device",
+    202 => "Start App Failed"
   }
 
   reason_phrase_to_atom = fn reason_phrase ->

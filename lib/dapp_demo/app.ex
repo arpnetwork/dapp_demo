@@ -34,10 +34,4 @@ defmodule DappDemo.App do
       Device.uninstall(dev.pid, package)
     end
   end
-
-  def start(address, package) do
-    with {:ok, dev} <- DevicePool.lookup(address) do
-      Device.start_app(dev.pid, package)
-    end
-  end
 end
