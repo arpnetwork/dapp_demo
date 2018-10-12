@@ -29,6 +29,7 @@ defmodule DappDemo.Device do
     packages: [],
     installing_packages: [],
     failed_packages: [],
+    crashed_packages: %{},
     state: @idle,
     ping_failed: false,
     paid: 0
@@ -41,6 +42,8 @@ defmodule DappDemo.Device do
   @app_install_success 0
   @app_download_failed 1
   @app_install_failed 2
+
+  @app_crash 0
 
   def is_idle?(dev) do
     dev.state == @idle
@@ -125,9 +128,17 @@ defmodule DappDemo.Device do
     end
   end
 
-  def install_notify(pid, package, result) do
+  def notify_app_install(pid, package, result) do
     if Process.alive?(pid) do
-      GenServer.cast(pid, {:install_notify, package, result})
+      GenServer.cast(pid, {:notify_app_install, package, result})
+    else
+      {:error, :invalid_pid}
+    end
+  end
+
+  def notify_app_stop(pid, package, result) do
+    if Process.alive?(pid) do
+      GenServer.cast(pid, {:notify_app_stop, package, result})
     else
       {:error, :invalid_pid}
     end
@@ -272,7 +283,7 @@ defmodule DappDemo.Device do
     end
   end
 
-  def handle_cast({:install_notify, package, result}, %{address: address} = state) do
+  def handle_cast({:notify_app_install, package, result}, %{address: address} = state) do
     case :ets.lookup(__MODULE__, address) do
       [{^address, device}] ->
         device =
@@ -307,6 +318,29 @@ defmodule DappDemo.Device do
                 packages: packages,
                 installing_packages: installing_packages
               )
+
+            true ->
+              device
+          end
+
+        :ets.insert(__MODULE__, {address, device})
+
+        {:noreply, state}
+
+      _ ->
+        {:stop, :normal, state}
+    end
+  end
+
+  def handle_cast({:notify_app_stop, package, reason}, %{address: address} = state) do
+    case :ets.lookup(__MODULE__, address) do
+      [{^address, device}] ->
+        device =
+          cond do
+            reason == @app_crash ->
+              old_times = Map.get(device.crashed_packages, package, 0)
+              crashed_packages = Map.put(device.crashed_packages, package, old_times + 1)
+              struct(device, crashed_packages: crashed_packages)
 
             true ->
               device

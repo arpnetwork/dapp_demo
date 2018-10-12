@@ -61,14 +61,13 @@ defmodule DappDemo.DevicePool do
 
     sorted =
       Enum.sort(devices, fn x, y ->
-        x_abs = abs(x.height / x.width - height / width)
-        y_abs = abs(y.height / y.width - height / width)
+        x_w =
+          calc_weight(width, height, x.width, x.height, Map.get(x.crashed_packages, package, 0))
 
-        if x_abs == y_abs do
-          abs(x.height - height) < abs(y.height - height)
-        else
-          x_abs < y_abs
-        end
+        y_w =
+          calc_weight(width, height, y.width, y.height, Map.get(y.crashed_packages, package, 0))
+
+        x_w > y_w
       end)
 
     dev = request_device(sorted, package, nil)
@@ -117,5 +116,12 @@ defmodule DappDemo.DevicePool do
       end
 
     request_device(rest, package, res)
+  end
+
+  defp calc_weight(client_width, client_height, device_width, device_height, broken_times) do
+    aspect_ratio = abs(client_width / client_height - device_width / device_height)
+    height_diff_ratio = abs(client_height - device_height) / device_height
+
+    -(aspect_ratio * 10 + height_diff_ratio * 10 + broken_times * 5)
   end
 end

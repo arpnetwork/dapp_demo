@@ -8,7 +8,15 @@ defmodule DappDemo.API.Jsonrpc2.App do
     address = Account.address()
 
     with {:ok, dev_address} <- Protocol.verify(method(), [package, result], nonce, sign, address) do
-      DappDemo.App.install_notify(dev_address, package, result)
+      DappDemo.App.notify_install(dev_address, package, result)
+    end
+  end
+
+  def notify_stop(package, reason, nonce, sign) do
+    address = Account.address()
+
+    with {:ok, dev_address} <- Protocol.verify(method(), [package, reason], nonce, sign, address) do
+      DappDemo.App.notify_stop(dev_address, package, reason)
     end
   end
 end

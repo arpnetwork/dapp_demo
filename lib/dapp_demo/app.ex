@@ -23,15 +23,21 @@ defmodule DappDemo.App do
     end
   end
 
-  def install_notify(address, package, result) do
-    with {:ok, dev} <- DevicePool.lookup(address) do
-      Device.install_notify(dev.pid, package, result)
-    end
-  end
-
   def uninstall(address, package) do
     with {:ok, dev} <- DevicePool.lookup(address) do
       Device.uninstall(dev.pid, package)
+    end
+  end
+
+  def notify_install(address, package, result) do
+    with {:ok, dev} <- DevicePool.lookup(address) do
+      Device.notify_app_install(dev.pid, package, result)
+    end
+  end
+
+  def notify_stop(address, package, reason) do
+    with {:ok, dev} <- DevicePool.lookup(address) do
+      Device.notify_app_stop(dev.pid, package, reason)
     end
   end
 end
