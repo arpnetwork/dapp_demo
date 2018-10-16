@@ -54,9 +54,9 @@ defmodule DappDemo.Server do
             server_address: server.address,
             address: result["address"],
             ip: result["ip"],
-            port: result["port"],
+            port: result["tcp_port"],
             price: price,
-            api_port: result["port"] + 1,
+            api_port: result["http_port"],
             width: result["width"] || 0,
             height: result["height"] || 0,
             inserted_at: DateTime.utc_now() |> DateTime.to_unix()
