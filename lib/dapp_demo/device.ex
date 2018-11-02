@@ -1,7 +1,7 @@
 defmodule DappDemo.Device do
   require Logger
 
-  alias DappDemo.{Account, Nonce, Utils}
+  alias DappDemo.{Account, Nonce, Server, ServerRegistry, Utils}
   alias DappDemo.API.Jsonrpc2.Protocol
   alias JSONRPC2.Client.HTTP
 
@@ -25,7 +25,6 @@ defmodule DappDemo.Device do
     :price,
     :inserted_at,
     :session,
-    :api_port,
     packages: [],
     installing_packages: [],
     failed_packages: [],
@@ -98,7 +97,9 @@ defmodule DappDemo.Device do
          false <- device.ping_failed,
          true <- Enum.member?(device.packages, package),
          @using <- device.state,
-         :ok <- send_request(address, device.ip, device.api_port, "app_start", [package]) do
+         {:ok, pid} <- ServerRegistry.lookup(device.server_address),
+         %{ip: ip, port: port, address: server_addr} <- Server.get(pid),
+         :ok <- send_request(server_addr, ip, port, "app_start", [address, package]) do
       :ok
     else
       _ ->
@@ -208,15 +209,18 @@ defmodule DappDemo.Device do
             :ets.insert(__MODULE__, {address, device})
 
             Task.async(fn ->
-              case send_request(address, device.ip, device.api_port, "app_install", [
-                     package,
-                     url,
-                     filesize,
-                     md5
-                   ]) do
-                :ok ->
-                  {:install_request_result, :success, package}
-
+              with {:ok, pid} <- ServerRegistry.lookup(device.server_address),
+                   %{ip: ip, port: port, address: server_addr} <- Server.get(pid),
+                   :ok <-
+                     send_request(server_addr, ip, port, "app_install", [
+                       address,
+                       package,
+                       url,
+                       filesize,
+                       md5
+                     ]) do
+                {:install_request_result, :success, package}
+              else
                 e ->
                   Logger.warn(inspect(e), label: "send install app failed")
                   {:install_request_result, :fail, package}
@@ -239,7 +243,10 @@ defmodule DappDemo.Device do
 
         true ->
           Task.async(fn ->
-            send_request(address, device.ip, device.api_port, "app_uninstall", [package])
+            with {:ok, pid} <- ServerRegistry.lookup(device.server_address),
+                 %{ip: ip, port: port, address: server_addr} <- Server.get(pid) do
+              send_request(server_addr, ip, port, "app_uninstall", [address, package])
+            end
           end)
 
           :ets.delete_object(DappDemo.DevicePackages, {package, address})
@@ -362,9 +369,6 @@ defmodule DappDemo.Device do
   def handle_cast(:check_interval, %{address: address} = state) do
     case :ets.lookup(__MODULE__, address) do
       [{^address, device}] ->
-        # check device working
-        check_ping(device)
-
         # check install timeout
         if device.state == @installing do
           device = check_install_timeout(device)
@@ -463,20 +467,6 @@ defmodule DappDemo.Device do
 
   def handle_info(_msg, state) do
     {:noreply, state}
-  end
-
-  defp check_ping(device) do
-    Task.async(fn ->
-      url = "http://#{device.ip}:#{device.api_port}"
-
-      case JSONRPC2.Client.HTTP.call(url, "device_ping", []) do
-        {:ok, _} ->
-          :ping_success
-
-        {:error, _} ->
-          :ping_failed
-      end
-    end)
   end
 
   defp check_install_timeout(device) do
